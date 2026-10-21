@@ -1,7 +1,7 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.2.0 — Revisión de producción validada y testeada (70/70 tests pasando). Publicación self-contained e instalador `LockSuiteSetup-0.2.0.exe` generado exitosamente.**
-Última actualización: 2026-10-21, sesión 6 (Antigravity).
+Versión actual: **0.2.0 — Repositorio sincronizado en GitHub, Release v0.2.0 publicado, sistema de auto-actualización y pipeline automatizado (73/73 tests pasando).**
+Última actualización: 2026-10-21, sesión 7 (Antigravity).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -68,19 +68,29 @@ Aplicación de escritorio moderna para Windows 11 (.NET 8 WPF).
 - Modal de autenticación del tutor para proteger cambios críticos.
 - Opciones de cambio de contraseña maestra y prueba segura de filtros WFP (30s).
 
-### 4.4 Instalador Inno Setup (`installer/LockSuiteSetup.iss`) — HECHO
-Script listo para compilar con Inno Setup 6. Empaqueta los binarios publicados del servicio y de la UI, instala el servicio con `sc.exe`, inicia el filtrado, crea los directorios protegidos en `%ProgramData%\LockSuite` y coloca los accesos directos.
+### 4.4 Sistema de Auto-Actualización (`src/LockSuite.Service/Updates/`) — HECHO y probado
+- `UpdateManager.cs`: Motor en segundo plano integrado al Windows Service. Consulta periódicamente (y al iniciar) `https://api.github.com/repos/CHKI541/Locksuite-Windows/releases/latest`. Si detecta una versión remota mayor a la instalada, descarga el instalador silenciosamente a `%ProgramData%\LockSuite\updates` y lo ejecuta con flags `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`. Inno Setup detiene el servicio viejo, actualiza los binarios en `C:\Program Files\LockSuite` y arranca el nuevo servicio, todo sin intervención del usuario.
+- `Presets.cs`: Inclusión de dominios de actualización (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com`) en `SystemEssentials` para permitir la resolución y descarga sin abrir sitios no autorizados.
 
-### 4.5 Pruebas Automatizadas — 49/49 superadas
-- `LockSuite.Core.Tests`: 26 tests (DomainMatcher, SniParser).
-- `LockSuite.Service.Tests`: 23 tests (DnsPacket, NXDOMAIN, TTL/IP parsing, WfpManager, SecurityManager/DPAPI/Lockout, ConfigManager, LearningManager, IpcProtocol).
+### 4.5 Automatización de Releases y CI/CD — HECHO
+- `scripts/publish-release.ps1`: Script PowerShell interactivo de publicación. En un solo comando (`.\scripts\publish-release.ps1 -Version X.Y.Z`), ejecuta los tests (100% verde), compila la publicación autocontenida win-x64, compila el instalador con Inno Setup, comitea, pushea a GitHub y crea el Release con el `.exe` adjunto vía `gh release create`.
+- `.github/workflows/build-and-release.yml`: Workflow para GitHub Actions que compila, testea y publica releases directamente desde la nube de GitHub.
+- Repositorio y Release: Proyecto vinculado a `https://github.com/CHKI541/Locksuite-Windows` con el Release `v0.2.0` publicado con su instalador de 73.6 MB adjunto.
+
+### 4.6 Pruebas Automatizadas — 73/73 superadas (100% verde)
+- `LockSuite.Core.Tests`: 43 tests (DomainMatcher, SniParser, etc.).
+- `LockSuite.Service.Tests`: 30 tests (DnsPacket, NXDOMAIN, TTL/IP parsing, WfpManager, SecurityManager/DPAPI/Lockout, ConfigManager, LearningManager, IpcProtocol, UpdateManager).
 
 ## 5. Qué sigue (en orden)
 
 1. **Prueba en máquina virtual (VM) limpia de Windows 11:**
-   - Copiar los binarios publicados de `publish/` o el instalador generado.
-   - Ejecutar la instalación, verificar que el servicio inicia y que las consultas a dominios de la lista blanca resuelven y navegan, mientras que sitios no listados quedan bloqueados (NXDOMAIN).
-   - Verificar la experiencia de la GUI en la cuenta estándar y la aprobación en 1 clic desde "Bloqueados recientes".
+   - Descargar el instalador directo desde GitHub Releases: `https://github.com/CHKI541/Locksuite-Windows/releases/latest/download/LockSuiteSetup-0.2.0.exe`.
+   - Ejecutar la instalación, configurar la contraseña maestra del tutor durante el wizard.
+   - Probar navegación en cuenta estándar:
+     - Dominios permitidos (Google, Mercado Pago, etc.) deben resolver y cargar.
+     - Dominios bloqueados deben devolver NXDOMAIN y aparecer en "Bloqueados recientes".
+     - Validar que el botón "Permitir" en la GUI los desbloquea al ingresar la contraseña del tutor.
+   - Probar auto-actualización cuando se publique una versión posterior.
 2. **Fase 2 (Inspección SNI opcional):**
    - Si se detectan casos de evasión por IP compartida en CDNs (Cloudflare), enganchar `SniParser` en la capa de flujo WFP para inspeccionar el ClientHello TLS.
 

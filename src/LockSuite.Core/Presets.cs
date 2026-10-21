@@ -31,7 +31,11 @@ public static class Presets
             "verisign.com",
             "globalsign.com",
             "letsencrypt.org",
-            "pki.goog"                // OCSP de Google (cubre ocsp.pki.goog)
+            "pki.goog",               // OCSP de Google (cubre ocsp.pki.goog)
+            "api.github.com",         // Actualizaciones automaticas de LockSuite
+            "github.com",
+            "objects.githubusercontent.com",
+            "raw.githubusercontent.com"
         }
     };
 

@@ -7,6 +7,7 @@ using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
 using LockSuite.Service.Learning;
 using LockSuite.Service.Security;
+using LockSuite.Service.Updates;
 using LockSuite.Service.Wfp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -114,6 +115,7 @@ public static class Program
                 services.AddSingleton<DnsResolver>();
                 services.AddSingleton<DnsConfigurator>();
                 services.AddSingleton<NamedPipeServer>();
+                services.AddSingleton<UpdateManager>();
 
                 services.AddHostedService(sp => new Worker(
                     sp.GetRequiredService<ILogger<Worker>>(),
@@ -122,6 +124,7 @@ public static class Program
                     sp.GetRequiredService<DnsResolver>(),
                     sp.GetRequiredService<DnsConfigurator>(),
                     sp.GetRequiredService<NamedPipeServer>(),
+                    sp.GetRequiredService<UpdateManager>(),
                     testWfpMode: testWfpMode
                 ));
             });

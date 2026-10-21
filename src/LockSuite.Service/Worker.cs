@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
+using LockSuite.Service.Updates;
 using LockSuite.Service.Wfp;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,7 @@ public sealed class Worker : BackgroundService
     private readonly DnsResolver _dnsResolver;
     private readonly DnsConfigurator _dnsConfigurator;
     private readonly NamedPipeServer _pipeServer;
+    private readonly UpdateManager _updateManager;
     private readonly bool _testWfpMode;
 
     public Worker(
@@ -27,6 +29,7 @@ public sealed class Worker : BackgroundService
         DnsResolver dnsResolver,
         DnsConfigurator dnsConfigurator,
         NamedPipeServer pipeServer,
+        UpdateManager updateManager,
         bool testWfpMode = false)
     {
         _logger = logger;
@@ -35,6 +38,7 @@ public sealed class Worker : BackgroundService
         _dnsResolver = dnsResolver;
         _dnsConfigurator = dnsConfigurator;
         _pipeServer = pipeServer;
+        _updateManager = updateManager;
         _testWfpMode = testWfpMode;
     }
 
@@ -58,7 +62,10 @@ public sealed class Worker : BackgroundService
         // 4. Iniciar servidor IPC (Named Pipe para la GUI)
         _pipeServer.Start();
 
-        // 5. Si está en modo test WFP, activar auto-rollback
+        // 5. Iniciar verificador de actualizaciones automáticas
+        _updateManager.StartPeriodicChecks();
+
+        // 6. Si está en modo test WFP, activar auto-rollback
         if (_testWfpMode)
         {
             _logger.LogWarning("MODO TEST WFP ACTIVO: Se iniciará auto-rollback en 30 segundos.");
@@ -101,13 +108,16 @@ public sealed class Worker : BackgroundService
         // 1. Detener IPC
         _pipeServer.Stop();
 
-        // 2. Restaurar DNS del sistema
+        // 2. Detener actualizador
+        _updateManager.Dispose();
+
+        // 3. Restaurar DNS del sistema
         _dnsConfigurator.RemoveNrptRedirect();
 
-        // 3. Detener resolutor DNS
+        // 4. Detener resolutor DNS
         _dnsResolver.Stop();
 
-        // 4. Revertir filtros WFP.
+        // 5. Revertir filtros WFP.
         //    Una parada ORDENADA (sc stop / apagado / desinstalación) es una acción
         //    intencional del administrador: restauramos la conectividad para no dejar
         //    la máquina sin red. El escenario fail-closed corresponde a una CAÍDA del
