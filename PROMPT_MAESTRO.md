@@ -1,18 +1,33 @@
-# Prompt maestro — pegar al principio de cada conversación nueva
+# Prompt Maestro — Para iniciar cualquier conversación nueva (Claude o Antigravity)
 
-Estamos construyendo LockSuite Windows, un programa que bloquea todo el internet de una computadora Windows salvo una lista blanca de dominios. Todo el proyecto vive en la carpeta `C:\Locksuite windows` de mi compu, conectada a esta conversación.
+Copiá y pegá el bloque siguiente como primer mensaje en cada nueva conversación:
+
+```markdown
+Estamos desarrollando LockSuite Windows (filtro de internet por lista blanca local para computadoras "Kosher" en Windows 11). Todo el repositorio está en la carpeta de este proyecto.
 
 Antes de hacer nada:
-1. Leé `ESTADO.md` completo (es el estado real del proyecto: decisiones tomadas, qué está afuera del alcance a propósito, preguntas abiertas, qué sigue).
-2. Leé también `docs/ANALISIS_VIABILIDAD.md` si vas a tocar la arquitectura, y cualquier otro archivo de `docs/` que sea relevante para lo que te voy a pedir.
-3. Contame en 2-3 líneas qué entendiste del estado actual, para confirmar que lo leíste bien, antes de arrancar.
+1. Leé completo `ESTADO.md` (es la única fuente de la verdad: decisiones tomadas, qué está hecho, qué está afuera del alcance a propósito, y el "Próximo paso").
+2. Si vas a modificar la arquitectura, leé `docs/ANALISIS_VIABILIDAD.md`.
+3. Confirmame en 2-3 líneas qué entendiste del estado actual y qué componentes están activos antes de empezar.
 
-Después de eso, esto es lo que necesito en esta sesión:
+---
 
-> [ACÁ ESCRIBO YO LO QUE QUIERO QUE HAGAS HOY]
+### Lo que necesito hacer en esta sesión:
+> [ESCRIBÍ ACÁ TU PEDIDO PUNTUAL]
 
-Reglas para toda la sesión:
-- Respetá las decisiones ya tomadas en `ESTADO.md` (en particular, la sección "Explícitamente afuera del alcance"). Si te parece que alguna ya no tiene sentido, decímelo y lo discutimos, pero no la cambies por tu cuenta.
-- Podés escribir y editar cualquier archivo de la carpeta del proyecto. No tenés una terminal de Windows real: no podés compilar, ejecutar el .exe, ni probar la interfaz con clics. Si algo necesita eso, no lo intentes simular: escribilo como tarea pendiente.
-- Cuando algo quede pendiente porque necesita Windows de verdad (compilar, probar, firmar, empaquetar, debuggear en vivo), agregalo a `ESTADO.md`, sección "Para Antigravity", con instrucciones concretas y accionables (qué comando correr, qué archivo mirar, qué se espera que pase).
-- Al terminar la sesión, actualizá `ESTADO.md`: qué se hizo, qué decisiones nuevas se tomaron, un renglón nuevo en el log de sesiones (fecha + resumen), y las preguntas abiertas que queden. Si se llega a una versión nueva y funcional, proponeme un mensaje de commit.
+---
+
+### Reglas para toda la sesión:
+1. **Respetá las decisiones de alcance:** No inventar drivers de kernel propios (.sys), no hacer inspección MITM/SSL con certificados falsos, no hacer blindaje contra el administrador. La seguridad viene de la cuenta estándar vs admin.
+2. **Si sos Claude (sin terminal de Windows):**
+   - Modificá el código, arquitectura o documentación que corresponda.
+   - Todo lo que requiera compilar, correr tests en vivo, probar el servicio/WFP o empaquetar, dejalo documentado y listo en `HANDOFF_ANTIGRAVITY.md` con los comandos exactos para que Antigravity lo ejecute luego.
+3. **Si sos Antigravity (con terminal de Windows):**
+   - Podés compilar con `dotnet build` / `dotnet test`, probar servicios, verificar y hacer commits en git.
+   - Si modificás código o la versión funciona y pasan los tests, hacé commit con un mensaje descriptivo.
+4. **Regla de cierre obligatoria (ambos):**
+   - Al terminar la tarea, actualizá `ESTADO.md`:
+     - Qué se construyó y qué se probó.
+     - Un renglón nuevo en la sección "Log de sesiones" con fecha y resumen.
+     - Dejá escrita la sección final "**Próximo paso**" con la indicación exacta de lo que sigue para la próxima conversación.
+```
