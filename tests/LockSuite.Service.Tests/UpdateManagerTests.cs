@@ -80,4 +80,53 @@ public class UpdateManagerTests
         bool result = await manager.CheckAndApplyUpdateAsync(CancellationToken.None);
         Assert.False(result);
     }
+
+    // --- Verificación de integridad (SHA-256) del instalador ---
+
+    [Fact]
+    public void TryGetExpectedSha256_FindsHash_ClassicFormat()
+    {
+        const string h = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        string sums = h + "  LockSuiteSetup-0.3.0.exe\n";
+        bool ok = UpdateManager.TryGetExpectedSha256(sums, "LockSuiteSetup-0.3.0.exe", out string hash);
+        Assert.True(ok);
+        Assert.Equal(h, hash);
+    }
+
+    [Fact]
+    public void TryGetExpectedSha256_StarFormat_AndCaseInsensitiveName()
+    {
+        const string upper = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
+        string sums = upper + " *locksuitesetup-0.3.0.exe";
+        bool ok = UpdateManager.TryGetExpectedSha256(sums, "LockSuiteSetup-0.3.0.exe", out string hash);
+        Assert.True(ok);
+        Assert.Equal(upper.ToLowerInvariant(), hash);
+    }
+
+    [Fact]
+    public void TryGetExpectedSha256_ReturnsFalse_WhenAssetMissing()
+    {
+        const string h = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        string sums = h + "  otro.exe";
+        bool ok = UpdateManager.TryGetExpectedSha256(sums, "LockSuiteSetup-0.3.0.exe", out string hash);
+        Assert.False(ok);
+        Assert.Equal("", hash);
+    }
+
+    [Fact]
+    public void ComputeSha256_MatchesKnownVector()
+    {
+        // SHA-256 de "abc"
+        string tmp = Path.Combine(Path.GetTempPath(), "ls_sha_" + Guid.NewGuid().ToString("N") + ".bin");
+        try
+        {
+            File.WriteAllText(tmp, "abc");
+            string hash = UpdateManager.ComputeSha256(tmp);
+            Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", hash);
+        }
+        finally
+        {
+            try { File.Delete(tmp); } catch { }
+        }
+    }
 }

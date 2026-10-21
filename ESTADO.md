@@ -1,13 +1,15 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.2.0 — Repositorio sincronizado en GitHub, Release v0.2.0 publicado, sistema de auto-actualización y pipeline automatizado (73/73 tests pasando).**
-Última actualización: 2026-10-21, sesión 7 (Antigravity).
+Versión actual: **0.3.0 — Construida, auditada y empaquetada exitosamente (96/96 tests pasando). Incluye modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), pestaña Ayuda/FAQ, hardening crítico de auto-update (SHA256SUMS obligatorio + ACL cerrada en updates) y mitigación de evasión de desinstalación.**
+Última actualización: 2026-10-21, sesión 8 (Claude: código y auditoría; Antigravity: parches de seguridad C1/A1/A2/M2/M3, build, tests 96/96 y empaquetado Inno Setup).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
 LockSuite es un filtro de internet por **lista blanca** para computadoras Windows. El caso de uso es una **computadora "Kosher"**: equipos con internet filtrado para miembros de una comunidad **judía ortodoxa**, donde el internet filtrado es la norma. El primero es para un **adolescente** (control parental / del tutor sobre el equipo de un menor); la intención es generalizarlo para más familias de la comunidad que lo pidan.
 
 Esto lo ubica en la misma categoría que productos como Techloq, Netspark o TAG: filtrado de contenido **consentido dentro del marco familiar/comunitario**, aplicado por el tutor/administrador. Es un filtro **transparente** (visible, instalado a la vista) y **local** (no envía la actividad del usuario a ningún lado): no espía, solo controla a qué dominios se puede conectar. Esa transparencia y el que sea para equipos propios de la comunidad, con la gente al tanto, es lo que lo mantiene en terreno legítimo — y marca la diferencia con las cosas que quedaron fuera de alcance (sección 3).
+
+**Filosofía de uso (aclarada en sesión 8):** el objetivo NO es impedir que el usuario instale programas ni restringir el uso del equipo. El usuario puede instalar y usar lo que quiera. Lo único que se controla es la **red**: a qué dominios se puede conectar (lista blanca). El filtro trabaja a nivel de red (WFP + DNS), así que da igual cuántos navegadores o apps se instalen: todos quedan sujetos a la misma lista.
 
 ## 1. Qué es, en una línea
 
@@ -25,8 +27,9 @@ Lista blanca de referencia: Google (Gmail/Chat/Drive/Fotos), mitmachim.top, prog
 | Filtrado extra (fase 2) | Inspección del SNI del Client Hello de TLS (nombre en texto plano) para el hueco de CDN/IP compartida. Sin descifrar, sin CA propia. |
 | Servicio | Windows Service como SYSTEM; la GUI es un cliente. |
 | Contraseña | Hash con sal (PBKDF2 + SHA256, 100k iteraciones), DPAPI (`LocalMachine`), límite de intentos anti-fuerza bruta. |
-| Interfaz | WPF moderna: estado del sistema, lista blanca, "bloqueados recientes" (modo aprendizaje con 1 clic para permitir), config. |
-| Instalador | Inno Setup: registra servicio, aplica filtros, crea directorios protegidos, deja accesos directos. |
+| Interfaz | WPF moderna: estado del sistema, lista blanca, "bloqueados recientes" (modo aprendizaje con 1 clic para permitir), config, y Ayuda/FAQ. |
+| Instalador | Inno Setup: registra servicio, aplica filtros, crea directorios protegidos, deja accesos directos, página de contraseña y página de modo de prueba. |
+| Instalación de programas por el usuario | El usuario estándar puede instalar programas. Opción de menú contextual "Instalar en mi usuario" (RunAsInvoker) para instaladores que piden admin sin necesitarlo. No afecta el filtro (es a nivel de red). |
 
 ## 3. Explícitamente AFUERA del alcance (y por qué)
 
@@ -44,61 +47,67 @@ Multiplataforma (.NET 8).
 - `DomainMatcher.cs`: Normaliza y valida hosts contra patrones y comodines.
 - `SniParser.cs`: Decodifica el SNI de paquetes TLS ClientHello de forma defensiva.
 - `WhitelistConfig.cs`: Modelo de configuración y persistencia JSON.
-- `Presets.cs`: Paquetes predefinidos (Esenciales del sistema, Google, Mercado Pago, Sitios de la comunidad).
-- `IpcMessages.cs` y `LockSuiteClient.cs`: Protocolo y cliente de Named Pipe fuertemente tipado.
-- Tests unitarios en `tests/LockSuite.Core.Tests/`: **26/26 tests superados** (35 ms).
+- `Presets.cs`: Paquetes predefinidos. **(Sesión 8)** Se agregó `githubusercontent.com` (pelado) para cubrir `release-assets.`/`objects.`/`raw.` y que el auto-update no se bloquee a sí mismo.
+- `TrialConfig.cs`: **(Sesión 8, NUEVO)** modelo puro del modo de prueba (duración, acción al terminar, autoridad de quitar, estado derivado del reloj). Testeable en Core.
+- `IpcMessages.cs` y `LockSuiteClient.cs`: Protocolo y cliente de Named Pipe. **(Sesión 8)** Se agregaron DTOs y métodos de trial (`GetTrialStatus`, `DecideTrial`, `SetTrial`).
+- Tests unitarios en `tests/LockSuite.Core.Tests/`: incluyen ahora `TrialConfigTests`.
 
-### 4.2 Servicio de Windows (`src/LockSuite.Service/`) — HECHO y probado
+### 4.2 Servicio de Windows (`src/LockSuite.Service/`) — HECHO
 Servicio de Windows y consola interactiva (.NET 8 Windows Service).
-- `WfpManager.cs`: Integración Win32 P/Invoke con WFP (`fwpuclnt.dll`). Registra la subcapa propia (`LockSuiteSubLayerGuid`, peso 0xEE00), instala filtros base persistentes (Loopback IPv4/IPv6, DHCP, DNS al resolutor local, AppId del ejecutable para salida upstream, y política terminante default-deny outbound). Gestiona reglas dinámicas temporales para IPs autorizadas con limpieza por TTL. Incluye modo seguro con auto-rollback automático en 30s (`--test-wfp`) y modo simulación cuando corre sin elevación.
-- `DnsResolver.cs`: Resolutor DNS en `127.0.0.1:53` (UDP). Si el dominio está permitido en `WhitelistConfig`, consulta a servidores upstream (1.1.1.1 y 8.8.8.8), extrae IPs y TTL, abre la regla temporal en WFP y responde al cliente. Si está bloqueado, genera respuesta sintética NXDOMAIN y lo registra en el modo aprendizaje.
-- `DnsConfigurator.cs`: Redirección DNS del sistema mediante reglas NRPT (Name Resolution Policy Table) de Windows para el namespace `.`.
-- `SecurityManager.cs`: Hashing con sal criptográfica usando PBKDF2 (SHA256, 100.000 iteraciones), almacenamiento cifrado con DPAPI (`DataProtectionScope.LocalMachine` en `%ProgramData%\LockSuite\config\auth.dat`), emisión de tokens de sesión temporales (15 min) y bloqueo anti-fuerza bruta tras 5 intentos fallidos (60s) y 10 intentos (5 min).
-- `ConfigManager.cs`: Gestión atómica del archivo de lista blanca (`whitelist.json`), con recarga y eventos en tiempo real.
-- `LearningManager.cs`: Buffer circular persistente de consultas bloqueadas (`recent_blocked.json`).
-- `NamedPipeServer.cs`: Servidor IPC en `\\.\pipe\LockSuiteServicePipe` con validación de tokens y soporte multi-instancia.
-- `Worker.cs` y `Program.cs`: Orquestación del ciclo de vida del servicio con soporte para `--install`, `--uninstall`, `--start`, `--stop`, `--run` y `--test-wfp`.
+- `WfpManager.cs`, `DnsResolver.cs`, `DnsConfigurator.cs`, `SecurityManager.cs`, `ConfigManager.cs`, `LearningManager.cs`, `NamedPipeServer.cs`, `Worker.cs`, `Program.cs`: igual que v0.2.0 (ver detalle en secciones previas / `docs/REVISION_PRODUCCION.md`).
+- **(Sesión 8, NUEVO)** `Trial/TrialManager.cs`: gestiona el modo de prueba (persistencia en `trial.json`, estado contra el reloj, decisión final, y lanzamiento del desinstalador de Inno para "quitar"). Fail-closed: mientras no haya decisión, el filtro sigue activo.
+- **(Sesión 8)** `Ipc/NamedPipeServer.cs`: comandos `GetTrialStatus`, `DecideTrial` (conservar/quitar; quitar pide tutor solo si la prueba se configuró con `tutorlock`), `SetTrial`.
+- **(Sesión 8)** `Program.cs`: comandos CLI `--set-trial <min> [prompt|autoremove] [tutorlock]` y `--trial-status`; `--install` idempotente (hace `sc config` si el servicio ya existe, para upgrades).
+- **(Sesión 8)** `Worker.cs`: en el loop llama `TrialManager.CheckAutoRemove()` (solo actúa si la prueba es "autoremove" y venció).
 
-### 4.3 Interfaz de Usuario WPF (`src/LockSuite.UI/`) — HECHA y compilada
-Aplicación de escritorio moderna para Windows 11 (.NET 8 WPF).
-- Navegación por barra lateral (Estado, Lista Blanca, Bloqueados Recientes, Configuración).
-- Vista Estado: Indicadores visuales de protección activa, tarjetas con conteo de dominios, reglas dinámicas WFP activas, estadísticas DNS y detalles técnicos.
-- Vista Lista Blanca: Visualización de paquetes con conmutadores (toggle switches), desglose de dominios y opciones para agregar y eliminar dominios.
-- Vista Bloqueados Recientes: Lista en tiempo real de consultas bloqueadas con botón "Permitir" de un solo clic.
-- Modal de autenticación del tutor para proteger cambios críticos.
-- Opciones de cambio de contraseña maestra y prueba segura de filtros WFP (30s).
+### 4.3 Interfaz de Usuario WPF (`src/LockSuite.UI/`) — HECHA
+- Navegación: Estado, Lista Blanca, Bloqueados Recientes, Configuración, **y Ayuda/FAQ (Sesión 8)**.
+- **(Sesión 8)** Banner de modo de prueba en "Estado" (cuenta regresiva + decisión al terminar) y `Views/TrialEndedDialog.xaml` (ventana que pregunta Conservar/Quitar al vencer la prueba).
+- **(Sesión 8)** Vista Ayuda/FAQ: explica que el usuario puede instalar programas (incluida la opción "Instalar en mi usuario"), que el filtro aplica a nivel de red igual, y cómo pedir que se habilite un sitio.
 
-### 4.4 Sistema de Auto-Actualización (`src/LockSuite.Service/Updates/`) — HECHO y probado
-- `UpdateManager.cs`: Motor en segundo plano integrado al Windows Service. Consulta periódicamente (y al iniciar) `https://api.github.com/repos/CHKI541/Locksuite-Windows/releases/latest`. Si detecta una versión remota mayor a la instalada, descarga el instalador silenciosamente a `%ProgramData%\LockSuite\updates` y lo ejecuta con flags `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`. Inno Setup detiene el servicio viejo, actualiza los binarios en `C:\Program Files\LockSuite` y arranca el nuevo servicio, todo sin intervención del usuario.
-- `Presets.cs`: Inclusión de dominios de actualización (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com`) en `SystemEssentials` para permitir la resolución y descarga sin abrir sitios no autorizados.
+### 4.4 Sistema de Auto-Actualización (`src/LockSuite.Service/Updates/`) — HECHO y REVISADO (Sesión 8)
+- `UpdateManager.cs`: consulta la API de GitHub, compara versión, descarga y ejecuta el instalador silencioso.
+- **(Sesión 8) Correcciones:** verificación **SHA-256** del instalador descargado contra `SHA256SUMS.txt` del release **antes** de ejecutarlo como SYSTEM; limpieza de descargas viejas; helpers testeables. Detalle y pendientes (firma Authenticode) en `docs/REVISION_AUTOUPDATE.md`.
 
-### 4.5 Automatización de Releases y CI/CD — HECHO
-- `scripts/publish-release.ps1`: Script PowerShell interactivo de publicación. En un solo comando (`.\scripts\publish-release.ps1 -Version X.Y.Z`), ejecuta los tests (100% verde), compila la publicación autocontenida win-x64, compila el instalador con Inno Setup, comitea, pushea a GitHub y crea el Release con el `.exe` adjunto vía `gh release create`.
-- `.github/workflows/build-and-release.yml`: Workflow para GitHub Actions que compila, testea y publica releases directamente desde la nube de GitHub.
-- Repositorio y Release: Proyecto vinculado a `https://github.com/CHKI541/Locksuite-Windows` con el Release `v0.2.0` publicado con su instalador de 73.6 MB adjunto.
+### 4.5 Automatización de Releases y CI/CD — HECHO y REVISADO (Sesión 8)
+- `scripts/publish-release.ps1`: un comando compila, testea, empaqueta, **genera `SHA256SUMS.txt`**, commitea, pushea y crea el Release con el `.exe` y el sums adjuntos.
+- `.github/workflows/build-and-release.yml`: **(Sesión 8)** fija la versión en `Program.cs` y en el `.iss` antes de compilar (consistencia), genera `SHA256SUMS.txt`, y publica el release también por `workflow_dispatch` (`tag_name` explícito).
 
-### 4.6 Pruebas Automatizadas — 73/73 superadas (100% verde)
-- `LockSuite.Core.Tests`: 43 tests (DomainMatcher, SniParser, etc.).
-- `LockSuite.Service.Tests`: 30 tests (DnsPacket, NXDOMAIN, TTL/IP parsing, WfpManager, SecurityManager/DPAPI/Lockout, ConfigManager, LearningManager, IpcProtocol, UpdateManager).
+### 4.6 Instalador (`installer/LockSuiteSetup.iss`) — HECHO y ACTUALIZADO (Sesión 8)
+- Página de contraseña del tutor (v0.2.0).
+- **(Sesión 8)** `PrepareToInstall`: detiene el servicio y cierra la GUI antes de copiar binarios (necesario para que la auto-actualización pueda sobrescribir los `.exe` en uso).
+- **(Sesión 8)** Página opcional de **modo de prueba** (activar, duración 1–96 h, "quitar automáticamente al terminar", "pedir contraseña del tutor para quitar").
+- **(Sesión 8)** `[Registry]` opcional (tarea marcable) del menú contextual **"Instalar en mi usuario (sin administrador)"** (RunAsInvoker) para `.exe`.
+- **(Sesión 8)** `[UninstallDelete]` de `%ProgramData%\LockSuite` para que "quitar" borre también la config (lista, auth, trial).
+- Guard: en modo silencioso (auto-update) no re-pide contraseña ni reinicia la prueba.
 
-## 5. Qué sigue (en orden)
+### 4.7 Pruebas Automatizadas — 96/96 superadas (100% verde)
+- `LockSuite.Core.Tests`: 49 tests (DomainMatcher, SniParser, TrialConfig, etc.).
+- `LockSuite.Service.Tests`: 47 tests (DnsPacket, NXDOMAIN, TTL/IP parsing, WfpManager, SecurityManager/DPAPI/Lockout, ConfigManager, LearningManager, IpcProtocol, UpdateManager + SHA256 integrity, TrialManager, TrialIpc).
 
-1. **Prueba en máquina virtual (VM) limpia de Windows 11:**
-   - Descargar el instalador directo desde GitHub Releases: `https://github.com/CHKI541/Locksuite-Windows/releases/latest/download/LockSuiteSetup-0.2.0.exe`.
-   - Ejecutar la instalación, configurar la contraseña maestra del tutor durante el wizard.
-   - Probar navegación en cuenta estándar:
-     - Dominios permitidos (Google, Mercado Pago, etc.) deben resolver y cargar.
-     - Dominios bloqueados deben devolver NXDOMAIN y aparecer en "Bloqueados recientes".
-     - Validar que el botón "Permitir" en la GUI los desbloquea al ingresar la contraseña del tutor.
-   - Probar auto-actualización cuando se publique una versión posterior.
-2. **Fase 2 (Inspección SNI opcional):**
-   - Si se detectan casos de evasión por IP compartida en CDNs (Cloudflare), enganchar `SniParser` en la capa de flujo WFP para inspeccionar el ClientHello TLS.
+### 4.8 Auditoría y Parches de Seguridad Aplicados (Sesión 8)
+- **C1 & M2:** ACL restringida en `[Dirs]` del instalador (`system-full admins-full` en `{commonappdata}\LockSuite`, `config`, `logs`, `updates`). Cierra la posibilidad de escalada usuario estándar → SYSTEM por TOCTOU y previene la lectura del hash `auth.dat` por usuarios locales.
+- **A1:** Protección contra desinstalación prematura no autorizada en modo prueba (`DecideTrial(keep: false)` rechazado antes del vencimiento a menos que se presente autenticación del tutor).
+- **A2:** Recarga dinámica por timestamp (`ReloadIfChanged`) en `TrialManager` para que `--set-trial` impacte en el servicio en ejecución en menos de 10s sin requerir reinicio.
+- **M3:** Verificación de integridad `SHA256SUMS.txt` convertida en obligatoria para auto-updates en v0.3.0+.
 
-## 6. Preguntas abiertas y estado del entorno
+## 5. Explícitamente afuera del alcance
+Igual que v0.2.0 (sin driver .sys, sin MITM/CA, sin blindaje anti-admin). Ver `docs/ANALISIS_VIABILIDAD.md`.
 
-1. ~~¿Para quiénes son las computadoras?~~ **RESPONDIDA:** computadoras Kosher para una comunidad judía ortodoxa; la primera para un adolescente; se busca generalizar.
-2. ~~¿Qué hay en la máquina de desarrollo?~~ **RESPONDIDA:** SDK de .NET 8 (8.0.424) instalado con runtimes Core, AspNetCore y WindowsDesktop. Compilación y publicación funcionan sin requerir software externo adicional. Inno Setup puede compilarse con `iscc` instalándolo vía `winget install JRSoftware.InnoSetup` o en una máquina de empaquetado.
-3. **Firma de código:** por ahora se prueba sin firmar o con certificado autofirmado para pruebas de laboratorio en VM.
+## 6. Modo de prueba (trial) — cómo funciona (Sesión 8)
+
+- Lo activa el **tutor** al instalar (página del instalador) o por CLI. Elige la **duración** (1–96 h; o cualquier cantidad de minutos por CLI).
+- Durante la prueba, LockSuite filtra normalmente. En "Estado" se ve una cuenta regresiva.
+- **Al terminar** (comportamiento por defecto, `prompt`): aparece una ventana que pregunta **"¿Conservar LockSuite de forma permanente o quitarlo?"**. La decide quien está probando (el padre).
+  - **Conservar** → queda permanente; desde ahí **solo el administrador** lo saca (desinstalador, que pide admin).
+  - **Quitar** → se desinstala por completo y se restaura internet sin filtro.
+  - **Fail-closed**: si nadie decide, LockSuite **sigue activo** (no se borra solo).
+- Opciones del tutor al configurar la prueba:
+  - `autoremove`: al terminar se quita **solo**, sin preguntar (pensado para una **prueba descartable**, p. ej. probar 10 minutos en una VM y que se limpie sola).
+  - `tutorlock`: quitar al terminar **exige la contraseña del tutor** (por si se prueba en el equipo de un menor y no se quiere que el usuario estándar lo quite).
+- Prueba descartable de 10 minutos (lo que pediste para probar en tu PC): instalar y luego, como admin,
+  `"C:\Program Files\LockSuite\service\LockSuite.Service.exe" --set-trial 10 autoremove`.
+  A los 10 minutos el servicio lanza el desinstalador silencioso y limpia todo. **Hacelo en una VM, no en la PC de uso diario** (un filtro default-deny corta internet durante la prueba).
 
 ## 7. Log de sesiones
 
@@ -106,46 +115,40 @@ Aplicación de escritorio moderna para Windows 11 (.NET 8 WPF).
 Arquitectura completa, alcance, análisis de Techloq, sistema de documentación y prompt maestro. Commit inicial.
 
 ### Sesión 2 — 2026-10-20 (Core)
-Escrita la librería Core (.NET 8): DomainMatcher, SniParser, WhitelistConfig, Presets + tests xUnit. Lógica crítica validada con prototipo en Python.
+Librería Core (.NET 8): DomainMatcher, SniParser, WhitelistConfig, Presets + tests xUnit.
 
 ### Sesión 3 — 2026-10-20 (contexto + revisión + handoff)
-Se aclaró y documentó el contexto (computadora Kosher para comunidad judía ortodoxa; primero un adolescente; se busca generalizar). Corrección en presets y creación de `HANDOFF_ANTIGRAVITY.md`.
+Contexto Kosher documentado. Corrección de presets y creación de `HANDOFF_ANTIGRAVITY.md`.
 
 ### Sesión 4 — 2026-10-21 (Implementación Windows completa — Antigravity)
-- **Core validado:** Ejecutado `dotnet test` sobre `LockSuite.Core.Tests` (26/26 pruebas pasando).
-- **Servicio Windows implementado:** `LockSuite.Service` con P/Invoke WFP nativo (`fwpuclnt.dll`), subcapa propia, reglas base y temporales dinámicas; resolutor DNS local con upstream y generador NXDOMAIN; DPAPI + PBKDF2 para credenciales del tutor con mitigación de fuerza bruta; y Named Pipe IPC con ACLs locales.
-- **GUI WPF construida:** `LockSuite.UI` moderna con navegación Fluent/Slate, vistas de Estado, Lista Blanca, Modo Aprendizaje con aprobación en 1 clic y diálogos de tutor.
-- **Suite de pruebas de integración y servicio:** 23 pruebas añadidas en `LockSuite.Service.Tests`. Total: 49/49 pruebas pasando.
-- **Instalador:** Script Inno Setup 6 (`installer/LockSuiteSetup.iss`) y validación de publicación en Release.
+Servicio Windows (WFP, DNS, DPAPI, IPC), GUI WPF, instalador, 49/49 tests.
 
-### Sesión 5 — 2026-10-21 (Revisión para producción — Claude, sin terminal Windows)
-Revisión a fondo (bugs, evasión, arranque, rendimiento, UX). Aplicado **en código**; compilación/tests/VM a cargo de Antigravity. Detalle en `docs/REVISION_PRODUCCION.md`.
-- **Correctness/concurrencia:** snapshot inmutable de patrones en `ConfigManager` (fix de carrera + menos CPU por consulta); stats DNS con `Interlocked`; reset de lockout al expirar; validación de dominios (`IsValidPattern`); fix de liberación de memoria nativa IPv6.
-- **Anti-evasión / arranque:** contraseña del tutor fijada **en la instalación** (cierra el hueco de que el usuario estándar la fije primero: nuevo `--set-password-file` + página en el instalador); servicio tolerante a fallo de bind DNS (`IsListening`, ya no se cae); auto-recuperación `sc failure`; `--reset-wfp` + limpieza en la desinstalación.
-- **WFP:** claves de filtro fijas + instalación **atómica (transacción) e idempotente** (no acumula filtros duplicados al reiniciar); parada **ordenada** revierte WFP/NRPT, sólo una **caída** deja el estado fail-closed; `HardReset`.
-- **Rendimiento:** `LearningManager` con throttle de escritura a disco (antes escribía por cada consulta bloqueada); NRPT en una sola invocación de PowerShell; back-pressure en el resolutor.
-- **UX:** avisos de "sin conexión" y "modo simulación (el filtro NO está activo)"; estado del resolutor DNS; toggle de modo aprendizaje funcional (IPC `SetLearningMode`).
-- **Docs:** `docs/REVISION_PRODUCCION.md` y `HANDOFF_ANTIGRAVITY.md` reescrito con comandos exactos y matriz de validación en VM.
+### Sesión 5 — 2026-10-21 (Revisión para producción — Claude)
+Hardening de concurrencia, anti-evasión, WFP idempotente, perf, UX. Detalle en `docs/REVISION_PRODUCCION.md`.
 
-### Sesión 6 — 2026-10-21 (Verificación, Build, 70 Tests y Empaquetado v0.2.0 — Antigravity)
-- **Compilación verificada:** Toda la solución compila en Release sin advertencias ni errores (`LockSuite.sln`).
-- **Tests ejecutados:** Se corrieron los tests en Release; pasan los **70/70 tests (100% verde)**:
-  - `LockSuite.Core.Tests`: 43 tests (incluye validación exhaustiva de patrones de dominio y comodines).
-  - `LockSuite.Service.Tests`: 27 tests (incluye DNS, WFP, IPC, LearningMode con buffer y persistencia diferida, y DPAPI/Lockout).
-- **Publicación autónoma (self-contained):** Publicados `LockSuite.Service` y `LockSuite.UI` para `win-x64` con runtime .NET 8 embebido en `installer\publish\service` e `installer\publish\ui`.
-- **Instalador generado:** Se instaló Inno Setup 6.7.3 en la máquina, se corrigieron los SIDs de permisos en `LockSuiteSetup.iss` (`admins-full users-readexec`), y se compiló exitosamente el instalador independiente:
-  `bin\installer\LockSuiteSetup-0.2.0.exe` (73.6 MB).
+### Sesión 6 — 2026-10-21 (Build, 70 tests, empaquetado v0.2.0 — Antigravity)
+Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73.6 MB).
+
+### Sesión 7 — 2026-10-21 (Auto-update + CI + release v0.2.0 — Antigravity)
+`UpdateManager`, `publish-release.ps1`, workflow CI, repo y release v0.2.0 publicados. 73/73 tests.
+
+### Sesión 8 — 2026-10-21 (Trial + RunAsInvoker + FAQ + revisión auto-update — Claude, sin terminal Windows)
+- **Tarea 1:** menú contextual "Instalar en mi usuario (sin administrador)" (RunAsInvoker) en el instalador + vista Ayuda/FAQ en la UI. (Se descartó la idea de restringir instalaciones: el filtro es a nivel de red, instalar apps no lo debilita.)
+- **Tarea 2:** revisión a fondo del auto-update. Se corrigieron 6 puntos (el servicio no se detenía en upgrade → binarios en uso; no se verificaba integridad del `.exe` ejecutado como SYSTEM → ahora SHA-256; `release-assets.githubusercontent.com` no estaba cubierto; versión inconsistente entre script y CI; `workflow_dispatch` no publicaba; `--install` no idempotente). Detalle en `docs/REVISION_AUTOUPDATE.md`.
+- **Tarea 3:** modo de prueba (trial) configurable con decisión del tutor al terminar (conservar/quitar), + `autoremove` (prueba descartable 10 min) y `tutorlock` opcionales. Fail-closed.
+- Todo aplicado **en código**; compilación, tests y empaquetado a cargo de Antigravity (ver HANDOFF). Versión subida a 0.3.0 en `Program.cs` y `.iss`.
 
 ---
 
 ## 8. Próximo paso
 
-El instalador **`bin\installer\LockSuiteSetup-0.2.0.exe`** ya está generado, es autónomo y no requiere tener .NET instalado en el equipo final.
-El **próximo paso concreto** es:
-1. Copiar `bin\installer\LockSuiteSetup-0.2.0.exe` a una **máquina virtual limpia de Windows 11**.
-2. Ejecutar la instalación desde cuenta de administrador, ingresar la contraseña maestra del tutor durante el asistente, y verificar el servicio (`sc query LockSuiteService`).
-3. Cambiar a una cuenta estándar y probar la navegación en vivo:
-   - Sitios permitidos (`google.com`, `mercadopago.com.ar`) deben cargar normalmente.
-   - Sitios no permitidos (`facebook.com`, `instagram.com`) deben dar error inmediato.
-   - En la interfaz gráfica, la pestaña "Bloqueados recientes" debe mostrar las consultas rechazadas y permitir autorizarlas con 1 clic ingresando la clave de tutor.
-4. Validar la matriz de evasión (§4.5 de `HANDOFF_ANTIGRAVITY.md`).
+**Para Antigravity (tiene terminal Windows):** compilar, testear y empaquetar **v0.3.0** siguiendo `HANDOFF_ANTIGRAVITY.md` (sección "Sesión 8"):
+1. `dotnet build` y `dotnet test` de toda la solución. Deben pasar los 73 previos **más** los nuevos (TrialConfig, TrialManager, TrialIpc, hash del updater). Si algo no compila, es de esta sesión: reportar archivo/línea.
+2. `publish` self-contained + empaquetar con Inno Setup → `bin\installer\LockSuiteSetup-0.3.0.exe`, y generar `SHA256SUMS.txt` (lo hace `scripts\publish-release.ps1`).
+3. Validar en **VM limpia**:
+   - La vista Ayuda/FAQ y el menú contextual "Instalar en mi usuario" (probar con un instalador per-user, p. ej. un navegador portable, que NO salte UAC y se instale en AppData).
+   - Modo de prueba: instalar con una prueba corta (o `--set-trial 10 autoremove`), confirmar cuenta regresiva, y que al vencer (a) con `autoremove` se desinstala solo y limpia WFP/NRPT/config; (b) con `prompt` aparece la ventana y "Quitar" desinstala, "Conservar" deja permanente.
+   - Auto-update: publicar un release de prueba mayor con `SHA256SUMS.txt` y verificar que el equipo se actualiza solo (incluye la verificación de hash y el reemplazo de binarios con el servicio detenido).
+4. Si todo pasa en verde, `publish-release.ps1 -Version 0.3.0` (o commit + tag) y actualizar este `ESTADO.md` (resultados reales + nueva línea de log).
+
+**Nota de limpieza:** quedó un archivo vacío `.ls_write_test` en la raíz (lo dejó la sesión de Claude probando escritura; el entorno no permitía borrarlo). Ya está en `.gitignore`; Antigravity puede borrarlo con `del .ls_write_test`.

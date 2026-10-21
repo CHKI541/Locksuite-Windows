@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versión del release (ej: 0.2.1)'
+        description: 'Version del release (ej: 0.3.1)'
         required: true
-        default: '0.2.1'
+        default: '0.3.1'
 
 jobs:
   build:
@@ -18,13 +18,31 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout código
+      - name: Checkout codigo
         uses: actions/checkout@v4
 
       - name: Configurar .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Extraer Version
+        id: get_version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $ver = "${{ github.event.inputs.version }}"
+          } else {
+            $ver = "${{ github.ref_name }}".TrimStart("v")
+          }
+          Write-Output "VERSION=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Fijar version en fuentes (consistencia con el instalador)
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.VERSION }}"
+          (Get-Content src/LockSuite.Service/Program.cs) -replace 'public const string Version = ".*";', "public const string Version = ""$ver"";" | Set-Content src/LockSuite.Service/Program.cs
+          (Get-Content installer/LockSuiteSetup.iss) -replace '#define MyAppVersion ".*"', "#define MyAppVersion ""$ver""" | Set-Content installer/LockSuiteSetup.iss
 
       - name: Instalar Inno Setup
         run: choco install innosetup --no-progress
@@ -38,27 +56,26 @@ jobs:
       - name: Compilar UI (win-x64 self-contained)
         run: dotnet publish src/LockSuite.UI -c Release -r win-x64 --self-contained true -o installer/publish/ui
 
-      - name: Extraer Versión
-        id: get_version
-        shell: pwsh
-        run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $ver = "${{ github.event.inputs.version }}"
-          } else {
-            $ver = "${{ github.ref_name }}".TrimStart("v")
-          }
-          Write-Output "VERSION=$ver" >> $env:GITHUB_OUTPUT
-
       - name: Compilar Instalador con ISCC
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.VERSION }}"
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" installer/LockSuiteSetup.iss
 
+      - name: Generar SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.VERSION }}"
+          $f = "bin/installer/LockSuiteSetup-$ver.exe"
+          $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+          "$h  LockSuiteSetup-$ver.exe" | Set-Content -Encoding ascii bin/installer/SHA256SUMS.txt
+
       - name: Publicar Release en GitHub
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: bin/installer/LockSuiteSetup-*.exe
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          files: |
+            bin/installer/LockSuiteSetup-*.exe
+            bin/installer/SHA256SUMS.txt
           name: LockSuite Windows v${{ steps.get_version.outputs.VERSION }}
           generate_release_notes: true

@@ -123,3 +123,45 @@ public sealed class BlockedDomainEvent
     [JsonPropertyName("count")]
     public int Count { get; set; } = 1;
 }
+
+public sealed class TrialStatusDto
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "None";
+
+    [JsonPropertyName("remainingSeconds")]
+    public int RemainingSeconds { get; set; }
+
+    [JsonPropertyName("durationMinutes")]
+    public int DurationMinutes { get; set; }
+
+    [JsonPropertyName("endUtc")]
+    public DateTimeOffset EndUtc { get; set; }
+
+    [JsonPropertyName("endAction")]
+    public string EndAction { get; set; } = "Prompt";
+
+    [JsonPropertyName("requireTutorToRemove")]
+    public bool RequireTutorToRemove { get; set; }
+}
+
+public sealed class TrialDecisionDto
+{
+    [JsonPropertyName("keep")]
+    public bool Keep { get; set; }
+}
+
+public sealed class SetTrialDto
+{
+    [JsonPropertyName("durationMinutes")]
+    public int DurationMinutes { get; set; }
+
+    [JsonPropertyName("endAction")]
+    public string EndAction { get; set; } = "Prompt";
+
+    [JsonPropertyName("requireTutorToRemove")]
+    public bool RequireTutorToRemove { get; set; }
+}

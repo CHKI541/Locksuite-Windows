@@ -61,6 +61,11 @@
                                  GroupName="NavGroup"
                                  Style="{DynamicResource NavButtonStyle}"
                                  Click="NavButton_Click" Tag="Configuracion"/>
+
+                    <RadioButton x:Name="NavAyuda" Content="❓  Ayuda / FAQ"
+                                 GroupName="NavGroup"
+                                 Style="{DynamicResource NavButtonStyle}"
+                                 Click="NavButton_Click" Tag="Ayuda"/>
                 </StackPanel>
 
                 <!-- Footer / Tutor Status -->
@@ -113,6 +118,37 @@
                 <!-- 1. VISTA: ESTADO -->
                 <ScrollViewer x:Name="ViewEstado" Visibility="Visible" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
+                        <!-- Banner: modo de prueba EN CURSO -->
+                        <Border Background="#DBEAFE" BorderBrush="#3B82F6" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14"
+                                Visibility="{Binding IsTrialActive, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#x23F3;" FontSize="18" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                <TextBlock TextWrapping="Wrap" Foreground="#1E3A8A" VerticalAlignment="Center"
+                                           Text="{Binding TrialBannerText}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Banner: prueba TERMINADA, decidir -->
+                        <Border Background="#FEF9C3" BorderBrush="#CA8A04" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14"
+                                Visibility="{Binding IsTrialAwaiting, Converter={StaticResource BoolToVis}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" TextWrapping="Wrap" Foreground="#854D0E" VerticalAlignment="Center"
+                                           Text="{Binding TrialBannerText}"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="Quitar" Height="28" Padding="12,0" Margin="8,0,6,0"
+                                            Background="#FEE2E2" Foreground="#991B1B" FontWeight="SemiBold"
+                                            BorderThickness="0" Cursor="Hand" Click="BtnTrialRemove_Click"/>
+                                    <Button Content="Conservar" Height="28" Padding="12,0"
+                                            Background="#2563EB" Foreground="White" FontWeight="SemiBold"
+                                            BorderThickness="0" Cursor="Hand" Click="BtnTrialKeep_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
                         <!-- Aviso: sin conexión al servicio -->
                         <Border Background="#FEE2E2" BorderBrush="#EF4444" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14"
                                 Visibility="{Binding IsConnected, Converter={StaticResource InverseBoolToVis}}">
@@ -379,6 +415,55 @@
                                         HorizontalAlignment="Left" Background="#475569" Foreground="White"
                                         FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
                                         Click="BtnTestWfp_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 5. VISTA: AYUDA / FAQ -->
+                <ScrollViewer x:Name="ViewAyuda" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Ayuda / Preguntas frecuentes" FontSize="18" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,14"/>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="¿Puedo instalar programas en este equipo?" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Sí. Podés usar el equipo con normalidad e instalar programas. Muchos programas se instalan en tu carpeta personal y no necesitan al administrador."/>
+                                <TextBlock Margin="0,8,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Si un instalador .exe te pide permisos de administrador pero en realidad no los necesita, hacé clic derecho sobre el archivo y elegí: «Instalar en mi usuario (sin administrador)». Se instalará en tu carpeta personal sin pedir la contraseña del administrador."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="¿El filtro me deja sin internet en esos programas?" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="No. Podés usar cualquier programa o navegador. Lo único es que todos pasan por el mismo filtro de red: solo se conectan a los sitios permitidos en la lista blanca. Instalar más navegadores o apps no cambia eso: el filtro trabaja a nivel de red, no por programa."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Necesito entrar a un sitio que está bloqueado" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Pedile al tutor que lo agregue a la lista. El tutor lo hace desde «Lista Blanca», o desde «Bloqueados Recientes» con el botón Permitir, ingresando su contraseña."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Hay programas que igual piden administrador" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Algunos instaladores necesitan al administrador de verdad (instalan un servicio o un controlador, o escriben en «Archivos de programa»). Esos los tiene que instalar el tutor. La opción «Instalar en mi usuario» solo sirve para los que piden administrador sin necesitarlo."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Actualizaciones" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="LockSuite se actualiza solo, en segundo plano. No tenés que hacer nada."/>
                             </StackPanel>
                         </Border>
                     </StackPanel>

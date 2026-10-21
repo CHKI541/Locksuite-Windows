@@ -2,11 +2,13 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using LockSuite.Core;
 using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
 using LockSuite.Service.Learning;
 using LockSuite.Service.Security;
+using LockSuite.Service.Trial;
 using LockSuite.Service.Updates;
 using LockSuite.Service.Wfp;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,7 +21,7 @@ public static class Program
 {
     public const string ServiceName = "LockSuiteService";
     public const string DisplayName = "LockSuite Filtering Service";
-    public const string Version = "0.2.0";
+    public const string Version = "0.3.0";
 
     public static int Main(string[] args)
     {
@@ -38,6 +40,10 @@ public static class Program
                     return StopServiceCommand();
                 case "--set-password-file":
                     return SetPasswordFromFile(args);
+                case "--set-trial":
+                    return SetTrial(args);
+                case "--trial-status":
+                    return TrialStatus();
                 case "--reset-wfp":
                     return ResetWfp();
                 case "--run":
@@ -116,6 +122,7 @@ public static class Program
                 services.AddSingleton<DnsConfigurator>();
                 services.AddSingleton<NamedPipeServer>();
                 services.AddSingleton<UpdateManager>();
+                services.AddSingleton<TrialManager>();
 
                 services.AddHostedService(sp => new Worker(
                     sp.GetRequiredService<ILogger<Worker>>(),
@@ -125,6 +132,7 @@ public static class Program
                     sp.GetRequiredService<DnsConfigurator>(),
                     sp.GetRequiredService<NamedPipeServer>(),
                     sp.GetRequiredService<UpdateManager>(),
+                    sp.GetRequiredService<TrialManager>(),
                     testWfpMode: testWfpMode
                 ));
             });
@@ -185,6 +193,49 @@ public static class Program
         return ok ? 0 : 1;
     }
 
+    /// <summary>
+    /// Configura el modo de prueba. Lo usa el instalador (y puede usarse a mano para una
+    /// prueba descartable). Uso:
+    ///   --set-trial &lt;minutos&gt; [prompt|autoremove] [tutorlock]
+    /// Ejemplos:
+    ///   --set-trial 1440 prompt           (24 h; al terminar pregunta conservar/quitar)
+    ///   --set-trial 10 autoremove         (10 min; al terminar se quita solo — prueba en VM)
+    ///   --set-trial 4320 prompt tutorlock (72 h; al terminar pregunta, y quitar pide contraseña del tutor)
+    /// </summary>
+    private static int SetTrial(string[] args)
+    {
+        if (args.Length < 2 || !int.TryParse(args[1], out int minutes) || minutes < 1)
+        {
+            Console.Error.WriteLine("Uso: --set-trial <minutos> [prompt|autoremove] [tutorlock]");
+            return 2;
+        }
+
+        var action = TrialEndAction.Prompt;
+        bool tutorLock = false;
+        for (int i = 2; i < args.Length; i++)
+        {
+            string a = args[i].ToLowerInvariant();
+            if (a == "autoremove") action = TrialEndAction.AutoRemove;
+            else if (a == "prompt") action = TrialEndAction.Prompt;
+            else if (a == "tutorlock") tutorLock = true;
+        }
+
+        using var lf = CreateCliLoggerFactory();
+        var tm = new TrialManager(lf.CreateLogger<TrialManager>());
+        tm.StartTrial(minutes, action, tutorLock);
+        Console.WriteLine($"Modo de prueba configurado: {minutes} min, al terminar={action}, tutorLock={tutorLock}.");
+        return 0;
+    }
+
+    private static int TrialStatus()
+    {
+        using var lf = CreateCliLoggerFactory();
+        var tm = new TrialManager(lf.CreateLogger<TrialManager>());
+        var s = tm.GetStatus();
+        Console.WriteLine($"Enabled={s.Enabled} State={s.State} RemainingSeconds={s.RemainingSeconds} EndUtc={s.EndUtc:o} EndAction={s.EndAction} RequireTutorToRemove={s.RequireTutorToRemove}");
+        return 0;
+    }
+
     private static void TryWipeAndDelete(string path)
     {
         try
@@ -236,9 +287,15 @@ public static class Program
         Console.WriteLine($"Instalando servicio '{ServiceName}'...");
         string scArgs = $"create {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto DisplayName= \"{DisplayName}\"";
         int rc = RunSc(scArgs);
-        if (rc != 0) return rc;
+        if (rc != 0)
+        {
+            // Idempotencia (actualización/upgrade): el servicio probablemente ya existe.
+            // En vez de fallar, actualizamos la ruta del binario y el modo de arranque.
+            Console.WriteLine("El servicio ya existe o no se pudo crear; intentando actualizar su configuración (upgrade)...");
+            RunSc($"config {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto");
+        }
 
-        // Descripción visible en services.msc
+        // Descripción visible en services.msc (idempotente).
         RunSc($"description {ServiceName} \"Filtro de internet por lista blanca (LockSuite). Bloquea todo el trafico saliente salvo los dominios permitidos por el tutor.\"");
 
         // Auto-recuperación: reiniciar el servicio ante caídas (resiliencia / anti-evasión).
@@ -311,6 +368,8 @@ public static class Program
         Console.WriteLine("  --start                    Inicia el Windows Service");
         Console.WriteLine("  --stop                     Detiene el Windows Service");
         Console.WriteLine("  --set-password-file <ruta> Fija la contraseña maestra inicial desde un archivo");
+        Console.WriteLine("  --set-trial <min> [prompt|autoremove] [tutorlock]  Configura el modo de prueba");
+        Console.WriteLine("  --trial-status             Muestra el estado del modo de prueba");
         Console.WriteLine("  --reset-wfp                Remueve filtros WFP + NRPT de LockSuite (recuperación)");
         Console.WriteLine("  --help                     Muestra esta ayuda");
     }

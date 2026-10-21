@@ -5,3 +5,4 @@ obj/
 *.suo
 publish/
 *.log
+.ls_write_test

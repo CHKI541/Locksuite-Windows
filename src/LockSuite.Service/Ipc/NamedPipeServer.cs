@@ -12,6 +12,7 @@ using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Learning;
 using LockSuite.Service.Security;
+using LockSuite.Service.Trial;
 using LockSuite.Service.Wfp;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +26,7 @@ public sealed class NamedPipeServer : IDisposable
     private readonly IWfpManager _wfpManager;
     private readonly DnsResolver _dnsResolver;
     private readonly LearningManager _learningManager;
+    private readonly TrialManager? _trialManager;
     private readonly string _pipeName;
 
     private CancellationTokenSource? _cts;
@@ -37,6 +39,7 @@ public sealed class NamedPipeServer : IDisposable
         IWfpManager wfpManager,
         DnsResolver dnsResolver,
         LearningManager learningManager,
+        TrialManager? trialManager = null,
         string? pipeName = null)
     {
         _logger = logger;
@@ -45,6 +48,7 @@ public sealed class NamedPipeServer : IDisposable
         _wfpManager = wfpManager;
         _dnsResolver = dnsResolver;
         _learningManager = learningManager;
+        _trialManager = trialManager;
         _pipeName = pipeName ?? IpcConstants.PipeName;
     }
 
@@ -227,8 +231,8 @@ public sealed class NamedPipeServer : IDisposable
                         return IpcResponse.Fail("Contraseña inválida");
                     }
                     bool initSuccess = _securityManager.SetInitialPassword(initDto.Password);
-                    return initSuccess 
-                        ? IpcResponse.Ok() 
+                    return initSuccess
+                        ? IpcResponse.Ok()
                         : IpcResponse.Fail("Ya existe una contraseña configurada o la contraseña es inválida");
 
                 case "ChangePassword":
@@ -239,8 +243,8 @@ public sealed class NamedPipeServer : IDisposable
                         return IpcResponse.Fail("Datos de cambio de contraseña inválidos");
                     }
                     bool changeSuccess = _securityManager.ChangePassword(changeDto.Password, changeDto.NewPassword);
-                    return changeSuccess 
-                        ? IpcResponse.Ok() 
+                    return changeSuccess
+                        ? IpcResponse.Ok()
                         : IpcResponse.Fail("Fallo al cambiar la contraseña");
 
                 case "ClearRecentBlocked":
@@ -289,6 +293,42 @@ public sealed class NamedPipeServer : IDisposable
                     if (!bool.TryParse(request.Payload, out bool learningEnabled))
                         return IpcResponse.Fail("Valor invalido para modo aprendizaje");
                     _configManager.SetLearningMode(learningEnabled);
+                    return IpcResponse.Ok();
+
+                case "GetTrialStatus":
+                    if (_trialManager == null) return IpcResponse.Fail("Modo de prueba no disponible");
+                    return IpcResponse.Ok(JsonSerializer.Serialize(_trialManager.GetStatus()));
+
+                case "DecideTrial":
+                    if (_trialManager == null) return IpcResponse.Fail("Modo de prueba no disponible");
+                    var decideDto = JsonSerializer.Deserialize<TrialDecisionDto>(request.Payload ?? "{}");
+                    if (decideDto == null) return IpcResponse.Fail("Datos inválidos");
+                    if (decideDto.Keep)
+                    {
+                        // Conservar es la acción protectora: siempre permitida.
+                        _trialManager.Decide(true);
+                        return IpcResponse.Ok();
+                    }
+                    // Quitar: si la prueba se configuró con "pedir contraseña del tutor", exigir sesión válida.
+                    bool hasAuth = RequireAuth(request);
+                    if (_trialManager.RequiresTutorToRemove && !hasAuth)
+                        return IpcResponse.Fail("Se requiere la contraseña del tutor para quitar LockSuite");
+
+                    bool success = _trialManager.Decide(false, isAuthorized: hasAuth);
+                    if (!success)
+                        return IpcResponse.Fail("No se puede quitar LockSuite antes de que venza el período de prueba a menos que se cuente con autorización del tutor.");
+
+                    return IpcResponse.Ok();
+
+                case "SetTrial":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    if (_trialManager == null) return IpcResponse.Fail("Modo de prueba no disponible");
+                    var setDto = JsonSerializer.Deserialize<SetTrialDto>(request.Payload ?? "{}");
+                    if (setDto == null || setDto.DurationMinutes < 1) return IpcResponse.Fail("Datos inválidos");
+                    var endAction = string.Equals(setDto.EndAction, "autoremove", StringComparison.OrdinalIgnoreCase)
+                        ? TrialEndAction.AutoRemove
+                        : TrialEndAction.Prompt;
+                    _trialManager.StartTrial(setDto.DurationMinutes, endAction, setDto.RequireTutorToRemove);
                     return IpcResponse.Ok();
 
                 default:

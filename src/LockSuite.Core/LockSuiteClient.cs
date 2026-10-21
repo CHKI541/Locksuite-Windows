@@ -160,4 +160,38 @@ public sealed class LockSuiteClient
         var resp = await SendCommandAsync("SetLearningMode", payload: enabled ? "true" : "false", sessionToken: sessionToken);
         return resp.Success;
     }
+
+    // ----------------- Modo de prueba (trial) -----------------
+
+    public async Task<TrialStatusDto?> GetTrialStatusAsync()
+    {
+        var resp = await SendCommandAsync("GetTrialStatus");
+        if (resp.Success && !string.IsNullOrEmpty(resp.Payload))
+        {
+            return JsonSerializer.Deserialize<TrialStatusDto>(resp.Payload, JsonOpts);
+        }
+        return null;
+    }
+
+    /// <summary>Decisión del usuario al terminar la prueba. keep=true conserva; keep=false quita todo.
+    /// El token solo es necesario si la prueba fue configurada con "pedir contraseña del tutor para quitar".</summary>
+    public async Task<(bool Success, string? Error)> DecideTrialAsync(bool keep, string? sessionToken = null)
+    {
+        string payload = JsonSerializer.Serialize(new TrialDecisionDto { Keep = keep });
+        var resp = await SendCommandAsync("DecideTrial", payload: payload, sessionToken: sessionToken);
+        return (resp.Success, resp.ErrorMessage);
+    }
+
+    /// <summary>Inicia/reinicia un período de prueba desde la GUI (requiere tutor autenticado).</summary>
+    public async Task<(bool Success, string? Error)> SetTrialAsync(int durationMinutes, string endAction, bool requireTutorToRemove, string sessionToken)
+    {
+        string payload = JsonSerializer.Serialize(new SetTrialDto
+        {
+            DurationMinutes = durationMinutes,
+            EndAction = endAction,
+            RequireTutorToRemove = requireTutorToRemove
+        });
+        var resp = await SendCommandAsync("SetTrial", payload: payload, sessionToken: sessionToken);
+        return (resp.Success, resp.ErrorMessage);
+    }
 }

@@ -24,10 +24,20 @@ public sealed class MainViewModel : ViewModelBase
     private long _blockedQueries;
     private int _whitelistPatternsCount;
 
+    // Modo de prueba
+    private bool _isTrialActive;
+    private bool _isTrialAwaiting;
+    private bool _trialRequireTutorToRemove;
+    private string _trialBannerText = "";
+    private bool _trialPromptShown;
+
     private bool _isAuthenticated;
     private string? _sessionToken;
     private string _statusMessage = "Conectando al servicio LockSuite...";
     private string _activeTab = "Estado";
+
+    /// <summary>Se dispara (una vez) cuando la prueba venció y espera la decisión del usuario.</summary>
+    public event Action? TrialAwaitingDecision;
 
     public bool IsConnected
     {
@@ -101,6 +111,30 @@ public sealed class MainViewModel : ViewModelBase
         set => SetProperty(ref _whitelistPatternsCount, value);
     }
 
+    public bool IsTrialActive
+    {
+        get => _isTrialActive;
+        set => SetProperty(ref _isTrialActive, value);
+    }
+
+    public bool IsTrialAwaiting
+    {
+        get => _isTrialAwaiting;
+        set => SetProperty(ref _isTrialAwaiting, value);
+    }
+
+    public bool TrialRequireTutorToRemove
+    {
+        get => _trialRequireTutorToRemove;
+        set => SetProperty(ref _trialRequireTutorToRemove, value);
+    }
+
+    public string TrialBannerText
+    {
+        get => _trialBannerText;
+        set => SetProperty(ref _trialBannerText, value);
+    }
+
     public bool IsAuthenticated
     {
         get => _isAuthenticated;
@@ -156,7 +190,7 @@ public sealed class MainViewModel : ViewModelBase
                 BlockedQueries = status.BlockedQueries;
                 WhitelistPatternsCount = status.WhitelistPatternsCount;
 
-                StatusMessage = IsWfpActive 
+                StatusMessage = IsWfpActive
                     ? (IsSimulationMode ? "Modo Simulación Activo (Sin Elevación)" : "Filtro WFP Activo — Navegación Protegida")
                     : "Servicio conectado (Filtro en espera)";
             }
@@ -174,6 +208,9 @@ public sealed class MainViewModel : ViewModelBase
                 RecentBlocked.Add(b);
             }
 
+            // Estado del modo de prueba
+            await RefreshTrialAsync();
+
             // Cargar configuración si la lista está vacía
             if (Packs.Count == 0 && IsConnected)
             {
@@ -183,6 +220,48 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"Error al sincronizar: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshTrialAsync()
+    {
+        var trial = await _client.GetTrialStatusAsync();
+        if (trial == null || !trial.Enabled)
+        {
+            IsTrialActive = false;
+            IsTrialAwaiting = false;
+            _trialPromptShown = false;
+            return;
+        }
+
+        TrialRequireTutorToRemove = trial.RequireTutorToRemove;
+
+        if (trial.State == "Active")
+        {
+            IsTrialActive = true;
+            IsTrialAwaiting = false;
+            _trialPromptShown = false;
+            int total = trial.RemainingSeconds;
+            int h = total / 3600;
+            int m = (total % 3600) / 60;
+            TrialBannerText = $"Modo de prueba: quedan {h} h {m} min. Al terminar se te preguntará si conservar LockSuite o quitarlo.";
+        }
+        else if (trial.State == "AwaitingDecision")
+        {
+            IsTrialActive = false;
+            IsTrialAwaiting = true;
+            TrialBannerText = "El período de prueba terminó. Elegí si conservar LockSuite de forma permanente o quitarlo.";
+            if (!_trialPromptShown)
+            {
+                _trialPromptShown = true;
+                TrialAwaitingDecision?.Invoke();
+            }
+        }
+        else
+        {
+            // None / Kept / Removing
+            IsTrialActive = false;
+            IsTrialAwaiting = false;
         }
     }
 
@@ -289,5 +368,16 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (string.IsNullOrEmpty(_sessionToken)) return "Requiere autenticación de tutor";
         return await _client.TestWfpAsync(_sessionToken);
+    }
+
+    /// <summary>Decisión del usuario al terminar la prueba. Para "quitar" con tutorlock, pasar el token.</summary>
+    public async Task<(bool Success, string? Error)> DecideTrialAsync(bool keep, string? token)
+    {
+        var result = await _client.DecideTrialAsync(keep, token);
+        if (result.Success)
+        {
+            await RefreshTrialAsync();
+        }
+        return result;
     }
 }

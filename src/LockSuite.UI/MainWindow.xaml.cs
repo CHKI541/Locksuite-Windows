@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using LockSuite.UI.ViewModels;
@@ -10,10 +11,15 @@ namespace LockSuite.UI;
 public partial class MainWindow : Window
 {
     private MainViewModel ViewModel => (MainViewModel)DataContext;
+    private bool _trialHandling;
 
     public MainWindow()
     {
         InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            ViewModel.TrialAwaitingDecision += OnTrialAwaiting;
+        };
     }
 
     private void NavButton_Click(object sender, RoutedEventArgs e)
@@ -24,6 +30,7 @@ public partial class MainWindow : Window
             ViewListaBlanca.Visibility = tag == "ListaBlanca" ? Visibility.Visible : Visibility.Collapsed;
             ViewRecientes.Visibility = tag == "Recientes" ? Visibility.Visible : Visibility.Collapsed;
             ViewConfig.Visibility = tag == "Configuracion" ? Visibility.Visible : Visibility.Collapsed;
+            ViewAyuda.Visibility = tag == "Ayuda" ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -232,6 +239,82 @@ public partial class MainWindow : Window
                 chk.IsChecked = !chk.IsChecked;
                 MessageBox.Show(this, "No se pudo cambiar el modo aprendizaje.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+    }
+
+    // ----------------- Modo de prueba (trial) -----------------
+
+    private void OnTrialAwaiting()
+    {
+        // La prueba venció: mostrar el diálogo (en el hilo de UI).
+        _ = Dispatcher.InvokeAsync(ShowTrialDialogAsync);
+    }
+
+    private async Task ShowTrialDialogAsync()
+    {
+        if (_trialHandling) return;
+        _trialHandling = true;
+        try
+        {
+            var dlg = new TrialEndedDialog(ViewModel.TrialRequireTutorToRemove) { Owner = this };
+            bool? r = dlg.ShowDialog();
+            if (r == true)
+            {
+                await DoTrialKeepAsync();
+            }
+            else if (dlg.RemoveRequested)
+            {
+                await DoTrialRemoveAsync();
+            }
+            // Si cerró el diálogo sin decidir, el banner en "Estado" queda disponible para decidir luego.
+        }
+        finally
+        {
+            _trialHandling = false;
+        }
+    }
+
+    private async void BtnTrialKeep_Click(object sender, RoutedEventArgs e) => await DoTrialKeepAsync();
+
+    private async void BtnTrialRemove_Click(object sender, RoutedEventArgs e) => await DoTrialRemoveAsync();
+
+    private async Task DoTrialKeepAsync()
+    {
+        var (ok, err) = await ViewModel.DecideTrialAsync(true, null);
+        if (ok)
+        {
+            MessageBox.Show(this, "LockSuite quedará instalado de forma permanente en este equipo. A partir de ahora, solo el administrador podrá quitarlo.", "LockSuite conservado", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show(this, err ?? "No se pudo registrar la decisión.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task DoTrialRemoveAsync()
+    {
+        var confirm = MessageBox.Show(this,
+            "Se desinstalará LockSuite por completo y se restaurará el acceso a internet sin filtro. ¿Continuar?",
+            "Quitar LockSuite", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        string? token = null;
+        if (ViewModel.TrialRequireTutorToRemove)
+        {
+            // La prueba se configuró para exigir la contraseña del tutor al quitar.
+            if (!await EnsureAuthenticatedAsync()) return;
+            token = ViewModel.SessionToken;
+        }
+
+        var (ok, err) = await ViewModel.DecideTrialAsync(false, token);
+        if (ok)
+        {
+            MessageBox.Show(this, "LockSuite se está quitando de este equipo. La aplicación se cerrará.", "Quitando LockSuite", MessageBoxButton.OK, MessageBoxImage.Information);
+            Application.Current.Shutdown();
+        }
+        else
+        {
+            MessageBox.Show(this, err ?? "No se pudo quitar LockSuite.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }

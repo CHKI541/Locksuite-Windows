@@ -1,0 +1,45 @@
+<Window x:Class="LockSuite.UI.Views.TrialEndedDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Período de prueba finalizado — LockSuite"
+        Height="320" Width="500"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#F3F4F6"
+        FontFamily="Segoe UI">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="El período de prueba de LockSuite terminó"
+                   FontSize="17" FontWeight="SemiBold" Foreground="#111827" TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="1" Margin="0,12,0,0" FontSize="13" Foreground="#374151" TextWrapping="Wrap"
+                   Text="¿Querés conservar LockSuite de forma permanente en este equipo?"/>
+
+        <StackPanel Grid.Row="2" Margin="0,12,0,0">
+            <TextBlock FontSize="12.5" Foreground="#4B5563" TextWrapping="Wrap" Margin="0,0,0,6"
+                       Text="• Sí, conservar: LockSuite queda instalado. A partir de ahí, solo el administrador podrá quitarlo."/>
+            <TextBlock FontSize="12.5" Foreground="#4B5563" TextWrapping="Wrap"
+                       Text="• No, quitar: se desinstala por completo y se restaura el acceso a internet sin filtro."/>
+        </StackPanel>
+
+        <TextBlock x:Name="TutorNote" Grid.Row="3" VerticalAlignment="Bottom" Margin="0,12,0,0"
+                   FontSize="11.5" Foreground="#92400E" TextWrapping="Wrap" Visibility="Collapsed"
+                   Text="Nota: para quitar LockSuite se te pedirá la contraseña del tutor."/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="No, quitar" Width="130" Height="34" Margin="0,0,10,0"
+                    Background="#FEE2E2" Foreground="#991B1B" FontWeight="SemiBold"
+                    BorderThickness="0" Cursor="Hand" Click="BtnRemove_Click"/>
+            <Button Content="Sí, conservar" Width="140" Height="34"
+                    IsDefault="True" Background="#2563EB" Foreground="White"
+                    FontWeight="SemiBold" BorderThickness="0" Cursor="Hand" Click="BtnKeep_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

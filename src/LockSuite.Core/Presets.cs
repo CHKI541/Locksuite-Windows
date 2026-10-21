@@ -32,10 +32,9 @@ public static class Presets
             "globalsign.com",
             "letsencrypt.org",
             "pki.goog",               // OCSP de Google (cubre ocsp.pki.goog)
-            "api.github.com",         // Actualizaciones automaticas de LockSuite
-            "github.com",
-            "objects.githubusercontent.com",
-            "raw.githubusercontent.com"
+            "api.github.com",         // Actualizaciones automaticas de LockSuite (metadata del release)
+            "github.com",             // Pagina del release / redireccion de descarga
+            "githubusercontent.com"   // Descarga del instalador: cubre objects./raw./release-assets. (todos los subdominios)
         }
     };
 

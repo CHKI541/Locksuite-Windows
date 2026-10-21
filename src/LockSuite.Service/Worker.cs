@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
+using LockSuite.Service.Trial;
 using LockSuite.Service.Updates;
 using LockSuite.Service.Wfp;
 using Microsoft.Extensions.Hosting;
@@ -20,6 +21,7 @@ public sealed class Worker : BackgroundService
     private readonly DnsConfigurator _dnsConfigurator;
     private readonly NamedPipeServer _pipeServer;
     private readonly UpdateManager _updateManager;
+    private readonly TrialManager _trialManager;
     private readonly bool _testWfpMode;
 
     public Worker(
@@ -30,6 +32,7 @@ public sealed class Worker : BackgroundService
         DnsConfigurator dnsConfigurator,
         NamedPipeServer pipeServer,
         UpdateManager updateManager,
+        TrialManager trialManager,
         bool testWfpMode = false)
     {
         _logger = logger;
@@ -39,6 +42,7 @@ public sealed class Worker : BackgroundService
         _dnsConfigurator = dnsConfigurator;
         _pipeServer = pipeServer;
         _updateManager = updateManager;
+        _trialManager = trialManager;
         _testWfpMode = testWfpMode;
     }
 
@@ -87,6 +91,11 @@ public sealed class Worker : BackgroundService
             try
             {
                 await Task.Delay(10_000, stoppingToken);
+
+                // Modo de prueba descartable: si venció y está en AutoRemove, desinstala solo.
+                // (El flujo Prompt NO borra nada acá: espera la decisión del usuario desde la GUI.)
+                _trialManager.CheckAutoRemove();
+
                 _logger.LogDebug("Estado LockSuite: Reglas dinámicas={Rules}, Consultas={Queries} (Permitidas={Allowed}, Bloqueadas={Blocked}), DNS escuchando={Dns}",
                     _wfpManager.ActiveDynamicRulesCount,
                     _dnsResolver.TotalQueries,
