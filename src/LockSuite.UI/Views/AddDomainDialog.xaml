@@ -1,0 +1,46 @@
+<Window x:Class="LockSuite.UI.Views.AddDomainDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Agregar Dominio a Lista Blanca — LockSuite" 
+        Height="280" Width="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#F3F3F3"
+        FontFamily="Segoe UI">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Agregar Dominio a la Lista Blanca" 
+                   FontSize="16" FontWeight="SemiBold" Foreground="#111827"/>
+        
+        <TextBlock Grid.Row="1" Text="Escriba el dominio a permitir (ej. ejemplo.com o *.ejemplo.com)"
+                   FontSize="12" Foreground="#6B7280" Margin="0,4,0,12" TextWrapping="Wrap"/>
+
+        <TextBlock Grid.Row="2" Text="Dominio:" FontWeight="Medium" Margin="0,0,0,4"/>
+        <TextBox x:Name="TxtDomain" Grid.Row="3" Height="30" Padding="6,2"
+                 VerticalContentAlignment="Center" FontSize="13" Margin="0,0,0,10"/>
+
+        <StackPanel Grid.Row="4">
+            <TextBlock Text="Paquete de destino:" FontWeight="Medium" Margin="0,0,0,4"/>
+            <ComboBox x:Name="CmbPacks" Height="30" VerticalContentAlignment="Center"
+                      FontSize="13" IsEditable="True"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="Cancelar" Width="90" Height="30" Margin="0,0,10,0"
+                    IsCancel="True" Background="#E5E7EB" BorderThickness="0"
+                    Cursor="Hand" Click="BtnCancel_Click"/>
+            <Button Content="Agregar" Width="100" Height="30"
+                    IsDefault="True" Background="#10B981" Foreground="White" 
+                    FontWeight="SemiBold" BorderThickness="0"
+                    Cursor="Hand" Click="BtnOk_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

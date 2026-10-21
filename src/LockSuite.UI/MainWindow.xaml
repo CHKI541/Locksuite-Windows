@@ -1,0 +1,393 @@
+<Window x:Class="LockSuite.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:LockSuite.UI.ViewModels"
+        mc:Ignorable="d"
+        Title="LockSuite Windows — Filtro por Lista Blanca" 
+        Height="650" Width="980"
+        MinHeight="550" MinWidth="850"
+        WindowStartupLocation="CenterScreen"
+        Background="#F8FAFC"
+        FontFamily="Segoe UI">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar / Barra Lateral -->
+        <Border Grid.Column="0" Background="#0F172A">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Brand Header -->
+                <StackPanel Grid.Row="0" Margin="20,24,20,20">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="🛡️" FontSize="24" Margin="0,0,10,0"/>
+                        <TextBlock Text="LockSuite" FontSize="20" FontWeight="Bold" Foreground="White"/>
+                    </StackPanel>
+                    <TextBlock Text="Filtro Local Kosher" FontSize="11" Foreground="#94A3B8" Margin="34,2,0,0"/>
+                </StackPanel>
+
+                <!-- Navigation Menu -->
+                <StackPanel Grid.Row="1" Margin="10,0,10,0">
+                    <RadioButton x:Name="NavEstado" Content="🛡️  Estado" 
+                                 GroupName="NavGroup" IsChecked="True"
+                                 Style="{DynamicResource NavButtonStyle}"
+                                 Click="NavButton_Click" Tag="Estado"/>
+
+                    <RadioButton x:Name="NavListaBlanca" Content="📋  Lista Blanca" 
+                                 GroupName="NavGroup"
+                                 Style="{DynamicResource NavButtonStyle}"
+                                 Click="NavButton_Click" Tag="ListaBlanca"/>
+
+                    <RadioButton x:Name="NavRecientes" Content="🔍  Bloqueados Recientes" 
+                                 GroupName="NavGroup"
+                                 Style="{DynamicResource NavButtonStyle}"
+                                 Click="NavButton_Click" Tag="Recientes"/>
+
+                    <RadioButton x:Name="NavConfig" Content="⚙️  Configuración" 
+                                 GroupName="NavGroup"
+                                 Style="{DynamicResource NavButtonStyle}"
+                                 Click="NavButton_Click" Tag="Configuracion"/>
+                </StackPanel>
+
+                <!-- Footer / Tutor Status -->
+                <Border Grid.Row="2" Background="#1E293B" CornerRadius="8" Margin="12,0,12,16" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="Control Parental / Tutor" FontSize="11" Foreground="#94A3B8"/>
+                        <TextBlock Text="{Binding IsAuthenticated, Converter={StaticResource AuthStatusConverter}}" 
+                                   FontSize="13" FontWeight="SemiBold" 
+                                   Foreground="{Binding IsAuthenticated, Converter={StaticResource AuthColorConverter}}"
+                                   Margin="0,2,0,8"/>
+                        <Button Content="{Binding IsAuthenticated, Converter={StaticResource AuthButtonTextConverter}}"
+                                Height="28" Background="#334155" Foreground="White"
+                                BorderThickness="0" Cursor="Hand"
+                                Click="BtnAuthTutor_Click"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Top Header Bar -->
+            <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="24,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding StatusMessage}" FontSize="13" FontWeight="Medium" Foreground="#334155"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="🔄 Actualizar" Height="28" Padding="10,0"
+                                Background="#F1F5F9" Foreground="#334155" BorderBrush="#CBD5E1"
+                                BorderThickness="1" Cursor="Hand" Click="BtnRefresh_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Views Container -->
+            <Grid Grid.Row="1" Margin="24">
+
+                <!-- 1. VISTA: ESTADO -->
+                <ScrollViewer x:Name="ViewEstado" Visibility="Visible" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Hero Banner -->
+                        <Border Background="#1E40AF" CornerRadius="10" Padding="20" Margin="0,0,0,20">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Protección por Lista Blanca Activa" FontSize="18" FontWeight="Bold" Foreground="White"/>
+                                    <TextBlock Text="Todo internet está bloqueado por defecto. Solo las conexiones a sitios permitidos en la lista son resueltas y autorizadas temporalmente en WFP." 
+                                               FontSize="13" Foreground="#DBEAFE" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="🔒" FontSize="36" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Stat Cards Grid -->
+                        <UniformGrid Columns="3" Margin="0,0,0,20">
+                            <!-- Card 1 -->
+                            <Border Background="White" CornerRadius="8" Padding="16" Margin="0,0,10,0"
+                                    BorderBrush="#E2E8F0" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Dominios Permitidos" FontSize="12" Foreground="#64748B"/>
+                                    <TextBlock Text="{Binding WhitelistPatternsCount}" FontSize="24" FontWeight="Bold" Foreground="#0F172A" Margin="0,4,0,0"/>
+                                    <TextBlock Text="Patrones activos en lista blanca" FontSize="11" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Card 2 -->
+                            <Border Background="White" CornerRadius="8" Padding="16" Margin="5,0,5,0"
+                                    BorderBrush="#E2E8F0" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Reglas WFP Dinámicas" FontSize="12" Foreground="#64748B"/>
+                                    <TextBlock Text="{Binding ActiveDynamicRulesCount}" FontSize="24" FontWeight="Bold" Foreground="#2563EB" Margin="0,4,0,0"/>
+                                    <TextBlock Text="IPs autorizadas temporalmente" FontSize="11" Foreground="#94A3B8" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Card 3 -->
+                            <Border Background="White" CornerRadius="8" Padding="16" Margin="10,0,0,0"
+                                    BorderBrush="#E2E8F0" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="Consultas DNS Procesadas" FontSize="12" Foreground="#64748B"/>
+                                    <TextBlock Text="{Binding TotalQueries}" FontSize="24" FontWeight="Bold" Foreground="#10B981" Margin="0,4,0,0"/>
+                                    <TextBlock Text="{Binding AllowedQueries, StringFormat='Permitidas: {0}'}" FontSize="11" Foreground="#64748B" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <!-- System Details Card -->
+                        <Border Background="White" CornerRadius="8" Padding="16" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Detalles del Sistema de Filtrado" FontSize="14" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,0,12"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Resolutor DNS Local:" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="1" Text="127.0.0.1:53 (UDP) — Redirección NRPT Activa" FontWeight="Medium"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Servidores Upstream:" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="1" Text="1.1.1.1 (Cloudflare) / 8.8.8.8 (Google)" FontWeight="Medium"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Modo de Operación:" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="1" Text="Windows Filtering Platform (ALE Outbound Default-Deny)" FontWeight="Medium"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Política ante Caída:" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="1" Text="Fail-Closed (Cerrado por defecto)" FontWeight="Medium"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 2. VISTA: LISTA BLANCA -->
+                <Grid x:Name="ViewListaBlanca" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,14">
+                        <Button Content="+ Agregar Dominio" Height="32" Padding="14,0"
+                                Background="#10B981" Foreground="White" FontWeight="SemiBold"
+                                BorderThickness="0" Cursor="Hand" Click="BtnAddDomain_Click"/>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Packs}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="White" CornerRadius="8" Padding="16" Margin="0,0,0,12"
+                                            BorderBrush="#E2E8F0" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- Header del Paquete -->
+                                            <Grid Grid.Row="0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                                    <TextBlock Text="{Binding DomainSummary}" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                                </StackPanel>
+
+                                                <CheckBox Grid.Column="1" IsChecked="{Binding Enabled}" 
+                                                          VerticalAlignment="Center" Content="Habilitado"
+                                                          Cursor="Hand" Click="ChkPackToggle_Click"/>
+                                            </Grid>
+
+                                            <!-- Dominios dentro del paquete -->
+                                            <Expander Grid.Row="1" Header="Ver dominios incluidos" Margin="0,10,0,0" Foreground="#475569">
+                                                <ItemsControl ItemsSource="{Binding Domains}" Margin="10,6,0,0">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="0,3">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding}" FontFamily="Consolas" FontSize="13" Foreground="#1E293B"/>
+                                                                <Button Grid.Column="1" Content="✕" Width="22" Height="22" 
+                                                                        Background="#FEE2E2" Foreground="#EF4444" BorderThickness="0"
+                                                                        ToolTip="Eliminar dominio" Cursor="Hand"
+                                                                        Click="BtnRemoveDomain_Click" Tag="{Binding}"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </Expander>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- 3. VISTA: BLOQUEADOS RECIENTES (MODO APRENDIZAJE) -->
+                <Grid x:Name="ViewRecientes" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="Dominios bloqueados recientemente por el resolutor DNS:" 
+                                   VerticalAlignment="Center" FontSize="13" Foreground="#475569"/>
+
+                        <Button Grid.Column="1" Content="Vaciar Historial" Height="30" Padding="12,0"
+                                Background="#E2E8F0" Foreground="#334155" BorderThickness="0"
+                                Cursor="Hand" Click="BtnClearBlocked_Click"/>
+                    </Grid>
+
+                    <Border Grid.Row="1" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+                        <ListView ItemsSource="{Binding RecentBlocked}" BorderThickness="0">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="Dominio Intentado" Width="260">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Domain}" FontWeight="Medium" FontFamily="Consolas" FontSize="13"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="Hora" Width="140" DisplayMemberBinding="{Binding Timestamp, StringFormat='HH:mm:ss dd/MM'}"/>
+                                    <GridViewColumn Header="Intentos" Width="80" DisplayMemberBinding="{Binding Count}"/>
+                                    <GridViewColumn Header="Acción" Width="140">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="✓ Permitir" Height="24" Padding="10,0"
+                                                        Background="#DCFCE7" Foreground="#166534" FontWeight="SemiBold"
+                                                        BorderThickness="0" Cursor="Hand"
+                                                        Click="BtnAllowBlocked_Click" Tag="{Binding Domain}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Border>
+                </Grid>
+
+                <!-- 4. VISTA: CONFIGURACIÓN -->
+                <ScrollViewer x:Name="ViewConfig" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Card: Contraseña Maestra -->
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,16"
+                                BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Contraseña Maestra del Tutor" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Text="Protegida localmente con cifrado DPAPI y PBKDF2. Los usuarios estándar no pueden modificar la lista sin esta clave."
+                                           FontSize="12" Foreground="#64748B" Margin="0,4,0,12" TextWrapping="Wrap"/>
+                                <Button Content="Modificar Contraseña Maestra..." Width="220" Height="32"
+                                        HorizontalAlignment="Left" Background="#2563EB" Foreground="White"
+                                        FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
+                                        Click="BtnChangePassword_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card: Políticas -->
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,16"
+                                BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Políticas de Red" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <CheckBox IsChecked="{Binding FailClosed}" Content="Modo Fail-Closed (Mantener red bloqueada si el servicio no corre)" 
+                                          Margin="0,12,0,8" Cursor="Hand" IsEnabled="False"/>
+                                <CheckBox IsChecked="{Binding LearningMode}" Content="Modo Aprendizaje (Registrar dominios no permitidos para su aprobación)" 
+                                          Margin="0,0,0,4" Cursor="Hand" IsEnabled="False"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card: Diagnóstico WFP -->
+                        <Border Background="White" CornerRadius="8" Padding="18"
+                                BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Prueba de Seguridad de Filtros WFP" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Text="Permite verificar que WFP bloquea correctamente el tráfico de salida y aplica auto-rollback en 30 segundos para evitar cualquier riesgo de desconexión accidental."
+                                           FontSize="12" Foreground="#64748B" Margin="0,4,0,12" TextWrapping="Wrap"/>
+                                <Button Content="Ejecutar Prueba WFP (30s seguro)" Width="240" Height="32"
+                                        HorizontalAlignment="Left" Background="#475569" Foreground="White"
+                                        FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
+                                        Click="BtnTestWfp_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+            </Grid>
+        </Grid>
+    </Grid>
+
+    <Window.Resources>
+        <!-- Style para botones del menú de navegación lateral -->
+        <Style x:Key="NavButtonStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#94A3B8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="border" CornerRadius="6" Background="Transparent" Padding="14,0">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1E293B"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#2563EB"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+</Window>

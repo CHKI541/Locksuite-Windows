@@ -1,0 +1,12 @@
+<Application x:Class="LockSuite.UI.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:LockSuite.UI"
+             xmlns:converters="clr-namespace:LockSuite.UI.Converters"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <converters:AuthStatusConverter x:Key="AuthStatusConverter"/>
+        <converters:AuthColorConverter x:Key="AuthColorConverter"/>
+        <converters:AuthButtonTextConverter x:Key="AuthButtonTextConverter"/>
+    </Application.Resources>
+</Application>
