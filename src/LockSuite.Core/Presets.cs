@@ -6,6 +6,11 @@ namespace LockSuite.Core;
 /// Paquetes de dominios predefinidos. Se afinan con el "modo aprendizaje":
 /// una pagina moderna pide recursos de muchos dominios (CDN, fuentes, APIs),
 /// asi que estos presets son un punto de partida razonable, no una lista cerrada.
+///
+/// Nota de semantica: un dominio "pelado" (ej. "google.com") ya habilita el dominio
+/// y TODOS sus subdominios (mail., drive., ...). Por eso aca NO se listan wildcards
+/// "*.google.com": serian redundantes. Solo se usaria "*.x" si se quisiera habilitar
+/// los subdominios de x pero NO x a secas, que no es el caso de estos presets.
 /// </summary>
 public static class Presets
 {
@@ -18,15 +23,15 @@ public static class Presets
         Enabled = true,
         Domains = new()
         {
-            "time.windows.com",           // sincronizacion de hora
-            "ntp.org", "*.ntp.org",       // hora (fallback)
-            "msftconnecttest.com",        // deteccion de conectividad de Windows
+            "time.windows.com",       // sincronizacion de hora
+            "ntp.org",                // hora (fallback), cubre pool.ntp.org etc.
+            "msftconnecttest.com",    // deteccion de conectividad de Windows
             "msftncsi.com",
-            "*.digicert.com",             // OCSP/CRL (validacion de certificados)
-            "*.verisign.com",
-            "ocsp.pki.goog",
-            "*.globalsign.com",
-            "*.letsencrypt.org", "*.int-x3.letsencrypt.org"
+            "digicert.com",           // OCSP/CRL (validacion de certificados)
+            "verisign.com",
+            "globalsign.com",
+            "letsencrypt.org",
+            "pki.goog"                // OCSP de Google (cubre ocsp.pki.goog)
         }
     };
 
@@ -37,14 +42,12 @@ public static class Presets
         Enabled = true,
         Domains = new()
         {
-            "google.com",                 // bare: cubre accounts., mail., drive., chat., photos., ...
-            "*.google.com",
-            "googleapis.com", "*.googleapis.com",
-            "gstatic.com", "*.gstatic.com",
-            "googleusercontent.com", "*.googleusercontent.com",
+            "google.com",             // cubre accounts., mail., drive., chat., photos., ...
+            "googleapis.com",
             "gstatic.com",
+            "googleusercontent.com",
             "google.com.ar",
-            "googlemail.com", "*.googlemail.com"
+            "googlemail.com"
         }
     };
 
@@ -55,10 +58,10 @@ public static class Presets
         Enabled = true,
         Domains = new()
         {
-            "mercadopago.com.ar", "*.mercadopago.com.ar",
-            "mercadolibre.com.ar", "*.mercadolibre.com.ar",  // MP se apoya en dominios de ML
-            "mlstatic.com", "*.mlstatic.com",
-            "mercadopago.com", "*.mercadopago.com"
+            "mercadopago.com.ar",
+            "mercadopago.com",
+            "mercadolibre.com.ar",    // MP se apoya en dominios de ML
+            "mlstatic.com"            // estaticos/CDN de ML
         }
     };
 
@@ -69,8 +72,8 @@ public static class Presets
         Enabled = true,
         Domains = new()
         {
-            "mitmachim.top", "*.mitmachim.top",
-            "prog.co.il", "*.prog.co.il"
+            "mitmachim.top",
+            "prog.co.il"
         }
     };
 
