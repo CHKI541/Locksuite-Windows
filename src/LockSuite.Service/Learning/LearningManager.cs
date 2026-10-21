@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Threading;
 using LockSuite.Core;
 using Microsoft.Extensions.Logging;
 
@@ -12,14 +12,24 @@ namespace LockSuite.Service.Learning;
 /// <summary>
 /// Mantiene y persiste los dominios bloqueados recientes para el "modo aprendizaje"
 /// de la GUI, permitiendo que el tutor apruebe dominios con un solo clic.
+///
+/// Rendimiento: RecordBlocked se invoca por cada consulta bloqueada (puede ser una rafaga,
+/// p.ej. una pagina con muchos trackers). Para no escribir el JSON a disco en cada evento,
+/// se actualiza la lista en memoria al instante y se marca "sucio"; un temporizador vuelca a
+/// disco a lo sumo cada pocos segundos, y tambien al vaciar o al apagar el servicio.
 /// </summary>
-public sealed class LearningManager
+public sealed class LearningManager : IDisposable
 {
     private const int MaxEntries = 200;
+    private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(5);
+
     private readonly string _logFilePath;
     private readonly ILogger<LearningManager> _logger;
     private readonly object _lock = new();
     private readonly List<BlockedDomainEvent> _events = new();
+    private readonly Timer _flushTimer;
+    private volatile bool _dirty;
+    private bool _disposed;
 
     public LearningManager(ILogger<LearningManager> logger, string? customLogPath = null)
     {
@@ -35,6 +45,7 @@ public sealed class LearningManager
         }
 
         LoadFromDisk();
+        _flushTimer = new Timer(_ => Flush(), null, FlushInterval, FlushInterval);
     }
 
     public void RecordBlocked(string domain, string? clientIp = null)
@@ -67,7 +78,7 @@ public sealed class LearningManager
                 });
             }
 
-            SaveToDisk();
+            _dirty = true; // Se vuelca a disco en el proximo tick del temporizador.
         }
     }
 
@@ -84,9 +95,21 @@ public sealed class LearningManager
         lock (_lock)
         {
             _events.Clear();
-            SaveToDisk();
+            _dirty = false;
+            SaveToDiskNoLock();
         }
         _logger.LogInformation("Historial de dominios bloqueados vaciado");
+    }
+
+    /// <summary>Vuelca a disco si hay cambios pendientes. Idempotente y barato si no hay nada sucio.</summary>
+    public void Flush()
+    {
+        lock (_lock)
+        {
+            if (!_dirty) return;
+            SaveToDiskNoLock();
+            _dirty = false;
+        }
     }
 
     private void LoadFromDisk()
@@ -109,7 +132,7 @@ public sealed class LearningManager
         }
     }
 
-    private void SaveToDisk()
+    private void SaveToDiskNoLock()
     {
         try
         {
@@ -128,5 +151,13 @@ public sealed class LearningManager
         {
             _logger.LogWarning(ex, "Error al guardar bloqueados recientes en {Path}", _logFilePath);
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        try { _flushTimer.Dispose(); } catch { }
+        Flush();
     }
 }

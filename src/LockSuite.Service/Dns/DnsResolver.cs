@@ -24,12 +24,25 @@ public sealed class DnsResolver : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _listenerTask;
 
+    // Limita las consultas concurrentes en vuelo para no crear tareas/sockets sin tope
+    // ante una rafaga (back-pressure). 256 es amplio para una sola maquina.
+    private readonly SemaphoreSlim _concurrency = new(256, 256);
+
     private const int MinTtlSeconds = 180; // Minimo 3 minutos de validez de regla WFP
     private const int UpstreamTimeoutMs = 3000;
+    private const int MaxBindAttempts = 3;
 
-    public long TotalQueries { get; private set; }
-    public long AllowedQueries { get; private set; }
-    public long BlockedQueries { get; private set; }
+    // Estadisticas: se actualizan desde multiples hebras -> Interlocked.
+    private long _totalQueries;
+    private long _allowedQueries;
+    private long _blockedQueries;
+
+    public long TotalQueries => Interlocked.Read(ref _totalQueries);
+    public long AllowedQueries => Interlocked.Read(ref _allowedQueries);
+    public long BlockedQueries => Interlocked.Read(ref _blockedQueries);
+
+    /// <summary>True si el socket UDP esta efectivamente escuchando en 127.0.0.1:53.</summary>
+    public bool IsListening { get; private set; }
 
     public DnsResolver(
         ILogger<DnsResolver> logger,
@@ -50,25 +63,48 @@ public sealed class DnsResolver : IDisposable
         _upstreamEndpoints.Add(new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53));
     }
 
+    /// <summary>
+    /// Inicia el resolutor. No lanza excepcion si el bind falla: reintenta y, de no poder,
+    /// deja el servicio en pie con IsListening=false (el estado WFP sigue siendo fail-closed).
+    /// Asi el servicio "arranca" siempre y la GUI puede reportar el problema al tutor.
+    /// </summary>
     public void Start()
     {
         if (_listenerSocket != null) return;
 
-        try
+        for (int attempt = 1; attempt <= MaxBindAttempts; attempt++)
         {
-            _listenerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            _listenerSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _listenerSocket.Bind(_listenEndpoint);
+            Socket? socket = null;
+            try
+            {
+                socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                socket.Bind(_listenEndpoint);
 
-            _cts = new CancellationTokenSource();
-            _listenerTask = Task.Run(() => ListenLoopAsync(_cts.Token));
-            _logger.LogInformation("Resolutor DNS local iniciado y escuchando en {Endpoint}", _listenEndpoint);
+                _listenerSocket = socket;
+                _cts = new CancellationTokenSource();
+                _listenerTask = Task.Run(() => ListenLoopAsync(_cts.Token));
+                IsListening = true;
+                _logger.LogInformation("Resolutor DNS local iniciado y escuchando en {Endpoint}", _listenEndpoint);
+                return;
+            }
+            catch (Exception ex)
+            {
+                try { socket?.Dispose(); } catch { /* best-effort */ }
+                _logger.LogError(ex, "Fallo al enlazar el resolutor DNS en {Endpoint} (intento {Attempt}/{Max})",
+                    _listenEndpoint, attempt, MaxBindAttempts);
+                if (attempt < MaxBindAttempts)
+                {
+                    Thread.Sleep(1000);
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error al iniciar el resolutor DNS local en {Endpoint}", _listenEndpoint);
-            throw;
-        }
+
+        IsListening = false;
+        _logger.LogCritical(
+            "No se pudo iniciar el resolutor DNS local en {Endpoint}. " +
+            "El filtrado por dominio no funcionara hasta resolver esto (¿puerto 53 ocupado por otro servicio DNS?). " +
+            "La red permanece bloqueada por WFP (fail-closed).", _listenEndpoint);
     }
 
     public void Stop()
@@ -80,6 +116,7 @@ public sealed class DnsResolver : IDisposable
         }
         catch { }
         _listenerSocket = null;
+        IsListening = false;
         _logger.LogInformation("Resolutor DNS local detenido");
     }
 
@@ -104,7 +141,19 @@ public sealed class DnsResolver : IDisposable
                 byte[] queryData = new byte[bytesRead];
                 Buffer.BlockCopy(buffer, 0, queryData, 0, bytesRead);
 
-                _ = Task.Run(() => ProcessQueryAsync(queryData, clientEp, token), token);
+                // Back-pressure: espera un cupo antes de procesar; limita tareas/sockets en vuelo.
+                await _concurrency.WaitAsync(token);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ProcessQueryAsync(queryData, clientEp, token);
+                    }
+                    finally
+                    {
+                        _concurrency.Release();
+                    }
+                }, token);
             }
             catch (OperationCanceledException)
             {
@@ -122,7 +171,7 @@ public sealed class DnsResolver : IDisposable
 
     private async Task ProcessQueryAsync(byte[] queryData, EndPoint clientEndpoint, CancellationToken token)
     {
-        TotalQueries++;
+        Interlocked.Increment(ref _totalQueries);
         var packet = DnsPacket.Parse(queryData, queryData.Length);
         if (packet == null || string.IsNullOrWhiteSpace(packet.QuestionName))
         {
@@ -134,7 +183,7 @@ public sealed class DnsResolver : IDisposable
 
         if (isAllowed)
         {
-            AllowedQueries++;
+            Interlocked.Increment(ref _allowedQueries);
             _logger.LogDebug("Consulta permitida: {Domain}", domain);
 
             byte[]? upstreamResponse = await QueryUpstreamAsync(queryData, token);
@@ -150,7 +199,7 @@ public sealed class DnsResolver : IDisposable
                         {
                             TimeSpan duration = TimeSpan.FromSeconds(Math.Max(ans.Ttl, MinTtlSeconds));
                             _wfpManager.AllowIpTemporary(ans.IpAddress, duration);
-                            _logger.LogInformation("Regla dinámica autorizada para IP {IP} ({Domain}), TTL: {Sec}s", 
+                            _logger.LogInformation("Regla dinámica autorizada para IP {IP} ({Domain}), TTL: {Sec}s",
                                 ans.IpAddress, domain, (int)duration.TotalSeconds);
                         }
                     }
@@ -168,11 +217,11 @@ public sealed class DnsResolver : IDisposable
         }
         else
         {
-            BlockedQueries++;
+            Interlocked.Increment(ref _blockedQueries);
             _logger.LogInformation("BLOQUEADO: {Domain} desde {Client}", domain, clientEndpoint);
 
             // Registrar en modo aprendizaje
-            if (_configManager.CurrentConfig.LearningMode)
+            if (_configManager.LearningMode)
             {
                 string clientIp = clientEndpoint is IPEndPoint ipEp ? ipEp.Address.ToString() : "127.0.0.1";
                 _learningManager.RecordBlocked(domain, clientIp);
@@ -191,8 +240,6 @@ public sealed class DnsResolver : IDisposable
             try
             {
                 using var upstreamSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                upstreamSocket.ReceiveTimeout = UpstreamTimeoutMs;
-                upstreamSocket.SendTimeout = UpstreamTimeoutMs;
 
                 await upstreamSocket.SendToAsync(queryData, SocketFlags.None, upstream);
 
@@ -219,9 +266,10 @@ public sealed class DnsResolver : IDisposable
     {
         try
         {
-            if (_listenerSocket != null && responseData.Length > 0)
+            var sock = _listenerSocket;
+            if (sock != null && responseData.Length > 0)
             {
-                await _listenerSocket.SendToAsync(responseData, SocketFlags.None, clientEndpoint);
+                await sock.SendToAsync(responseData, SocketFlags.None, clientEndpoint);
             }
         }
         catch (Exception ex)
@@ -234,5 +282,6 @@ public sealed class DnsResolver : IDisposable
     {
         Stop();
         _cts?.Dispose();
+        _concurrency.Dispose();
     }
 }

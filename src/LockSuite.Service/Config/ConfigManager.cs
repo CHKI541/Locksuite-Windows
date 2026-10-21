@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using LockSuite.Core;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,14 @@ namespace LockSuite.Service.Config;
 /// <summary>
 /// Administra la carga y guardado de WhitelistConfig en disco.
 /// Ruta: %ProgramData%\LockSuite\config\whitelist.json
+///
+/// Rendimiento y concurrencia:
+///   - El resolutor DNS consulta IsAllowed() en el camino caliente, por consulta.
+///     Para no recalcular LINQ (flatten+distinct) ni tomar el lock en cada consulta,
+///     se mantiene un snapshot inmutable de patrones activos (_activePatterns) que se
+///     reemplaza atomicamente cuando cambia la config. Los lectores (DNS) lo leen sin lock.
+///   - Todas las mutaciones y la serializacion toman _lock, por lo que nunca se serializa
+///     una lista que otra hebra esta mutando.
 /// </summary>
 public sealed class ConfigManager
 {
@@ -16,6 +25,9 @@ public sealed class ConfigManager
     private readonly ILogger<ConfigManager> _logger;
     private readonly object _lock = new();
     private WhitelistConfig _currentConfig;
+
+    // Snapshot inmutable de patrones activos; se reemplaza (no se muta) en cada cambio.
+    private volatile string[] _activePatterns = Array.Empty<string>();
 
     public event Action<WhitelistConfig>? ConfigChanged;
 
@@ -35,6 +47,7 @@ public sealed class ConfigManager
         }
 
         _currentConfig = LoadOrCreateDefault();
+        RebuildPatternSnapshot();
     }
 
     public WhitelistConfig CurrentConfig
@@ -48,11 +61,27 @@ public sealed class ConfigManager
         }
     }
 
+    /// <summary>Lectura del hot path: sin lock, sobre el snapshot inmutable.</summary>
     public bool IsAllowed(string? host)
+    {
+        return DomainMatcher.IsAllowed(_activePatterns, host);
+    }
+
+    /// <summary>Cantidad de patrones activos (desde el snapshot, sin recalcular).</summary>
+    public int ActivePatternCount => _activePatterns.Length;
+
+    /// <summary>Estado actual del modo aprendizaje.</summary>
+    public bool LearningMode
+    {
+        get { lock (_lock) { return _currentConfig.LearningMode; } }
+    }
+
+    /// <summary>Serializa la config de forma consistente (bajo lock).</summary>
+    public string GetConfigJson()
     {
         lock (_lock)
         {
-            return _currentConfig.IsAllowed(host);
+            return _currentConfig.ToJson();
         }
     }
 
@@ -60,18 +89,20 @@ public sealed class ConfigManager
     {
         lock (_lock)
         {
-            _currentConfig = newConfig;
-            SaveToDisk(newConfig);
+            _currentConfig = newConfig ?? new WhitelistConfig();
+            SaveToDisk(_currentConfig);
+            RebuildPatternSnapshot();
         }
 
-        _logger.LogInformation("Configuracion de lista blanca actualizada. Patrones activos: {Count}", 
-            _currentConfig.ActivePatterns().Count);
+        _logger.LogInformation("Configuracion de lista blanca actualizada. Patrones activos: {Count}",
+            _activePatterns.Length);
 
-        ConfigChanged?.Invoke(_currentConfig);
+        ConfigChanged?.Invoke(CurrentConfig);
     }
 
     public void TogglePack(string packName, bool enabled)
     {
+        bool changed = false;
         lock (_lock)
         {
             var pack = _currentConfig.Packs.Find(p => string.Equals(p.Name, packName, StringComparison.OrdinalIgnoreCase));
@@ -79,16 +110,34 @@ public sealed class ConfigManager
             {
                 pack.Enabled = enabled;
                 SaveToDisk(_currentConfig);
+                RebuildPatternSnapshot();
+                changed = true;
                 _logger.LogInformation("Paquete '{Pack}' {Status}", packName, enabled ? "activado" : "desactivado");
             }
         }
+        if (changed) ConfigChanged?.Invoke(CurrentConfig);
+    }
+
+    /// <summary>Activa o desactiva el registro de dominios bloqueados (modo aprendizaje).</summary>
+    public void SetLearningMode(bool enabled)
+    {
+        lock (_lock)
+        {
+            _currentConfig.LearningMode = enabled;
+            SaveToDisk(_currentConfig);
+        }
+        _logger.LogInformation("Modo aprendizaje {Status}", enabled ? "activado" : "desactivado");
         ConfigChanged?.Invoke(CurrentConfig);
     }
 
     public bool AddDomain(string domain, string? targetPackName = null)
     {
         domain = DomainMatcher.Normalize(domain);
-        if (string.IsNullOrWhiteSpace(domain)) return false;
+        if (!DomainMatcher.IsValidPattern(domain))
+        {
+            _logger.LogWarning("Dominio rechazado por patron invalido o peligroso: '{Domain}'", domain);
+            return false;
+        }
 
         lock (_lock)
         {
@@ -110,6 +159,7 @@ public sealed class ConfigManager
             {
                 pack.Domains.Add(domain);
                 SaveToDisk(_currentConfig);
+                RebuildPatternSnapshot();
                 _logger.LogInformation("Dominio '{Domain}' agregado al paquete '{Pack}'", domain, packName);
             }
         }
@@ -135,6 +185,7 @@ public sealed class ConfigManager
             if (removedAny)
             {
                 SaveToDisk(_currentConfig);
+                RebuildPatternSnapshot();
                 _logger.LogInformation("Dominio '{Domain}' eliminado de la lista blanca", domain);
             }
         }
@@ -146,6 +197,12 @@ public sealed class ConfigManager
         return removedAny;
     }
 
+    /// <summary>Recalcula el snapshot inmutable de patrones. Debe llamarse con _lock tomado.</summary>
+    private void RebuildPatternSnapshot()
+    {
+        _activePatterns = _currentConfig.ActivePatterns().ToArray();
+    }
+
     private WhitelistConfig LoadOrCreateDefault()
     {
         try
@@ -154,7 +211,7 @@ public sealed class ConfigManager
             {
                 string json = File.ReadAllText(_configPath);
                 var loaded = WhitelistConfig.FromJson(json);
-                _logger.LogInformation("Configuracion cargada desde {Path}. Patrones activos: {Count}", 
+                _logger.LogInformation("Configuracion cargada desde {Path}. Patrones activos: {Count}",
                     _configPath, loaded.ActivePatterns().Count);
                 return loaded;
             }

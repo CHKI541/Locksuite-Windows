@@ -54,6 +54,9 @@ public sealed class ServiceStatusDto
     [JsonPropertyName("isSimulationMode")]
     public bool IsSimulationMode { get; set; }
 
+    [JsonPropertyName("isDnsListening")]
+    public bool IsDnsListening { get; set; }
+
     [JsonPropertyName("failClosed")]
     public bool FailClosed { get; set; }
 

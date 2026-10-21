@@ -80,4 +80,39 @@ public class ConfigManagerTests : IDisposable
         Assert.True(removed);
         Assert.False(manager.IsAllowed("temporal.com"));
     }
+
+    [Fact]
+    public void AddDomain_RejectsInvalidPattern()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+
+        Assert.False(manager.AddDomain("com"));
+        Assert.False(manager.AddDomain("*"));
+        Assert.False(manager.AddDomain("   "));
+        Assert.False(manager.IsAllowed("com"));
+    }
+
+    [Fact]
+    public void SetLearningMode_TogglesAndPersists()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+
+        manager.SetLearningMode(false);
+        Assert.False(manager.LearningMode);
+
+        var reload = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        Assert.False(reload.LearningMode);
+    }
+
+    [Fact]
+    public void ActivePatternCount_ReflectsAddedDomain()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+
+        int before = manager.ActivePatternCount;
+        Assert.True(before > 0);
+
+        manager.AddDomain("nuevo-dominio-unico-test.com");
+        Assert.Equal(before + 1, manager.ActivePatternCount);
+    }
 }

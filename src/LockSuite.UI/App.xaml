@@ -8,5 +8,8 @@
         <converters:AuthStatusConverter x:Key="AuthStatusConverter"/>
         <converters:AuthColorConverter x:Key="AuthColorConverter"/>
         <converters:AuthButtonTextConverter x:Key="AuthButtonTextConverter"/>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+        <converters:BoolYesNoConverter x:Key="BoolYesNo"/>
     </Application.Resources>
 </Application>

@@ -180,6 +180,7 @@ public sealed class NamedPipeServer : IDisposable
                         IsRunning = true,
                         IsWfpActive = _wfpManager.IsActive,
                         IsSimulationMode = _wfpManager.IsSimulationMode,
+                        IsDnsListening = _dnsResolver.IsListening,
                         FailClosed = _configManager.CurrentConfig.FailClosed,
                         LearningMode = _configManager.CurrentConfig.LearningMode,
                         IsPasswordConfigured = _securityManager.IsPasswordSet(),
@@ -187,12 +188,12 @@ public sealed class NamedPipeServer : IDisposable
                         TotalQueries = _dnsResolver.TotalQueries,
                         AllowedQueries = _dnsResolver.AllowedQueries,
                         BlockedQueries = _dnsResolver.BlockedQueries,
-                        WhitelistPatternsCount = _configManager.CurrentConfig.ActivePatterns().Count
+                        WhitelistPatternsCount = _configManager.ActivePatternCount
                     };
                     return IpcResponse.Ok(JsonSerializer.Serialize(status));
 
                 case "GetConfig":
-                    return IpcResponse.Ok(_configManager.CurrentConfig.ToJson());
+                    return IpcResponse.Ok(_configManager.GetConfigJson());
 
                 case "GetRecentBlocked":
                     var recent = _learningManager.GetRecent();
@@ -282,6 +283,13 @@ public sealed class NamedPipeServer : IDisposable
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
                     _wfpManager.StartAutoRollback(TimeSpan.FromSeconds(30));
                     return IpcResponse.Ok("WFP Test activado. Auto-rollback en 30 segundos.");
+
+                case "SetLearningMode":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    if (!bool.TryParse(request.Payload, out bool learningEnabled))
+                        return IpcResponse.Fail("Valor invalido para modo aprendizaje");
+                    _configManager.SetLearningMode(learningEnabled);
+                    return IpcResponse.Ok();
 
                 default:
                     return IpcResponse.Fail($"Comando desconocido: '{request.Command}'");

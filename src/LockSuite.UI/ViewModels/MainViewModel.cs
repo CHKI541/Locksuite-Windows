@@ -14,6 +14,7 @@ public sealed class MainViewModel : ViewModelBase
     private bool _isConnected;
     private bool _isWfpActive;
     private bool _isSimulationMode;
+    private bool _isDnsListening;
     private bool _failClosed = true;
     private bool _learningMode = true;
     private bool _isPasswordConfigured;
@@ -44,6 +45,12 @@ public sealed class MainViewModel : ViewModelBase
     {
         get => _isSimulationMode;
         set => SetProperty(ref _isSimulationMode, value);
+    }
+
+    public bool IsDnsListening
+    {
+        get => _isDnsListening;
+        set => SetProperty(ref _isDnsListening, value);
     }
 
     public bool FailClosed
@@ -139,6 +146,7 @@ public sealed class MainViewModel : ViewModelBase
                 IsConnected = true;
                 IsWfpActive = status.IsWfpActive;
                 IsSimulationMode = status.IsSimulationMode;
+                IsDnsListening = status.IsDnsListening;
                 FailClosed = status.FailClosed;
                 LearningMode = status.LearningMode;
                 IsPasswordConfigured = status.IsPasswordConfigured;
@@ -251,6 +259,17 @@ public sealed class MainViewModel : ViewModelBase
         if (ok)
         {
             RecentBlocked.Clear();
+        }
+        return ok;
+    }
+
+    public async Task<bool> SetLearningModeAsync(bool enabled)
+    {
+        if (string.IsNullOrEmpty(_sessionToken)) return false;
+        bool ok = await _client.SetLearningModeAsync(enabled, _sessionToken);
+        if (ok)
+        {
+            await RefreshDataAsync();
         }
         return ok;
     }

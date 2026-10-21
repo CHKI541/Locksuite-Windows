@@ -41,14 +41,15 @@ public sealed class Worker : BackgroundService
     public override Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("=================================================");
-        _logger.LogInformation("  Iniciando LockSuite Windows Service 0.1         ");
+        _logger.LogInformation("  Iniciando LockSuite Windows Service            ");
         _logger.LogInformation("=================================================");
 
-        // 1. Inicializar WFP
+        // 1. Inicializar WFP (default-deny). No lanza: ante error pasa a simulación.
         bool failClosed = _configManager.CurrentConfig.FailClosed;
         _wfpManager.Initialize(failClosed);
 
-        // 2. Iniciar resolutor DNS local (127.0.0.1:53)
+        // 2. Iniciar resolutor DNS local (127.0.0.1:53). No lanza: si no puede enlazar,
+        //    queda IsListening=false y el servicio sigue en pie (la red sigue bloqueada).
         _dnsResolver.Start();
 
         // 3. Aplicar redirección DNS del sistema hacia 127.0.0.1
@@ -79,11 +80,12 @@ public sealed class Worker : BackgroundService
             try
             {
                 await Task.Delay(10_000, stoppingToken);
-                _logger.LogDebug("Estado LockSuite: Reglas dinámicas={Rules}, Consultas={Queries} (Permitidas={Allowed}, Bloqueadas={Blocked})",
+                _logger.LogDebug("Estado LockSuite: Reglas dinámicas={Rules}, Consultas={Queries} (Permitidas={Allowed}, Bloqueadas={Blocked}), DNS escuchando={Dns}",
                     _wfpManager.ActiveDynamicRulesCount,
                     _dnsResolver.TotalQueries,
                     _dnsResolver.AllowedQueries,
-                    _dnsResolver.BlockedQueries);
+                    _dnsResolver.BlockedQueries,
+                    _dnsResolver.IsListening);
             }
             catch (OperationCanceledException)
             {
@@ -94,7 +96,7 @@ public sealed class Worker : BackgroundService
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Deteniendo LockSuite Windows Service...");
+        _logger.LogInformation("Deteniendo LockSuite Windows Service (parada ordenada)...");
 
         // 1. Detener IPC
         _pipeServer.Stop();
@@ -105,13 +107,15 @@ public sealed class Worker : BackgroundService
         // 3. Detener resolutor DNS
         _dnsResolver.Stop();
 
-        // 4. Revertir filtros WFP (salvo que la política exija fail-closed persistente al detener)
-        if (!_configManager.CurrentConfig.FailClosed)
-        {
-            _wfpManager.Rollback();
-        }
+        // 4. Revertir filtros WFP.
+        //    Una parada ORDENADA (sc stop / apagado / desinstalación) es una acción
+        //    intencional del administrador: restauramos la conectividad para no dejar
+        //    la máquina sin red. El escenario fail-closed corresponde a una CAÍDA del
+        //    proceso (que NO invoca StopAsync); allí, con FailClosed=true, los filtros
+        //    de la sesión no dinámica persisten y la red queda bloqueada hasta el reinicio.
+        _wfpManager.Rollback();
 
-        _logger.LogInformation("LockSuite Windows Service detenido correctamente.");
+        _logger.LogInformation("LockSuite Windows Service detenido correctamente. Conectividad restaurada.");
         return base.StopAsync(cancellationToken);
     }
 }

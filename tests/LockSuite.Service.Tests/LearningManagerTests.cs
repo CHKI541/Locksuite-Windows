@@ -50,4 +50,17 @@ public class LearningManagerTests : IDisposable
         manager.Clear();
         Assert.Empty(manager.GetRecent());
     }
+
+    [Fact]
+    public void Flush_PersistsToDiskAndReloads()
+    {
+        using (var manager = new LearningManager(NullLogger<LearningManager>.Instance, _tempLogFile))
+        {
+            manager.RecordBlocked("persistido.com");
+            manager.Flush();
+        }
+
+        using var reload = new LearningManager(NullLogger<LearningManager>.Instance, _tempLogFile);
+        Assert.Contains(reload.GetRecent(), e => e.Domain == "persistido.com");
+    }
 }

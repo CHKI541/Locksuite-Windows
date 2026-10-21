@@ -7,7 +7,8 @@ namespace LockSuite.Service.Dns;
 
 /// <summary>
 /// Configura Windows para dirigir las resoluciones DNS hacia el resolutor local (127.0.0.1)
-/// y permite restaurar la configuración anterior.
+/// y permite restaurar la configuración anterior. Usa reglas NRPT (Name Resolution Policy Table)
+/// para el namespace "." (todos los dominios).
 /// </summary>
 public sealed class DnsConfigurator
 {
@@ -21,8 +22,9 @@ public sealed class DnsConfigurator
     }
 
     /// <summary>
-    /// Aplica una regla NRPT (Name Resolution Policy Table) en Windows para redirigir
-    /// todas las consultas DNS del sistema al resolutor local 127.0.0.1.
+    /// Aplica (de forma idempotente) la regla NRPT que redirige todas las consultas DNS del
+    /// sistema al resolutor local 127.0.0.1. Primero remueve cualquier regla previa de LockSuite
+    /// y luego crea la nueva, todo en UNA sola invocación de PowerShell para acelerar el arranque.
     /// </summary>
     public bool ApplyNrptRedirect()
     {
@@ -30,37 +32,19 @@ public sealed class DnsConfigurator
 
         try
         {
-            // Primero removemos cualquier regla previa de LockSuite si quedó remanente
-            RemoveNrptRedirect();
+            string psCommand =
+                "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'LockSuiteDNS' } | Remove-DnsClientNrptRule -Force -ErrorAction SilentlyContinue; " +
+                "Add-DnsClientNrptRule -Namespace '.' -NameServers '127.0.0.1' -Comment 'LockSuiteDNS'";
 
-            // Comando PowerShell para crear la regla NRPT para namespace "." (todos los dominios)
-            string psCommand = "Add-DnsClientNrptRule -Namespace '.' -NameServers '127.0.0.1' -Comment 'LockSuiteDNS'";
-            var psi = new ProcessStartInfo
+            int exit = RunPowerShell(psCommand, out string err);
+            if (exit == 0)
             {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCommand}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true
-            };
-
-            using var process = Process.Start(psi);
-            if (process != null)
-            {
-                process.WaitForExit(5000);
-                if (process.ExitCode == 0)
-                {
-                    _nrptApplied = true;
-                    _logger.LogInformation("Regla NRPT aplicada: todo el tráfico DNS del sistema redirigido a 127.0.0.1");
-                    return true;
-                }
-                else
-                {
-                    string err = process.StandardError.ReadToEnd();
-                    _logger.LogWarning("Fallo al aplicar regla NRPT (ExitCode: {Code}): {Error}", process.ExitCode, err);
-                }
+                _nrptApplied = true;
+                _logger.LogInformation("Regla NRPT aplicada: todo el tráfico DNS del sistema redirigido a 127.0.0.1");
+                return true;
             }
+
+            _logger.LogWarning("Fallo al aplicar regla NRPT (ExitCode: {Code}): {Error}", exit, err);
         }
         catch (Exception ex)
         {
@@ -70,9 +54,7 @@ public sealed class DnsConfigurator
         return false;
     }
 
-    /// <summary>
-    /// Remueve la regla NRPT de LockSuite si fue aplicada.
-    /// </summary>
+    /// <summary>Remueve la regla NRPT de LockSuite si fue aplicada.</summary>
     public void RemoveNrptRedirect()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
@@ -80,16 +62,7 @@ public sealed class DnsConfigurator
         try
         {
             string psCommand = "Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'LockSuiteDNS' } | Remove-DnsClientNrptRule -Force -ErrorAction SilentlyContinue";
-            var psi = new ProcessStartInfo
-            {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCommand}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-
-            using var process = Process.Start(psi);
-            process?.WaitForExit(5000);
+            RunPowerShell(psCommand, out _);
             _nrptApplied = false;
             _logger.LogInformation("Regla NRPT de LockSuite removida");
         }
@@ -97,5 +70,35 @@ public sealed class DnsConfigurator
         {
             _logger.LogWarning(ex, "Error al remover regla NRPT");
         }
+    }
+
+    private static int RunPowerShell(string command, out string stderr)
+    {
+        stderr = string.Empty;
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"",
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true
+        };
+
+        using var process = Process.Start(psi);
+        if (process == null) return -1;
+
+        // Esperar primero (la salida de estos cmdlets es minima) y luego leer, para no
+        // bloquear el hilo si algun stream se demora.
+        if (!process.WaitForExit(8000))
+        {
+            try { process.Kill(true); } catch { /* best-effort */ }
+            stderr = "timeout";
+            return -1;
+        }
+
+        stderr = process.StandardError.ReadToEnd();
+        _ = process.StandardOutput.ReadToEnd();
+        return process.ExitCode;
     }
 }

@@ -41,4 +41,25 @@ public class DomainMatcherTests
         Assert.False(DomainMatcher.IsAllowed(wl, "google.com"));
         Assert.False(DomainMatcher.IsAllowed(wl, "drive.google.com"));
     }
+
+    [Theory]
+    [InlineData("google.com", true)]
+    [InlineData("*.gstatic.com", true)]
+    [InlineData(".example.com", true)]
+    [InlineData("sub.example.co.il", true)]
+    [InlineData("xn--bcher-kva.com", true)]   // punycode (IDN) valido
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("com", false)]                 // TLD suelto -> abriria demasiado
+    [InlineData("localhost", false)]           // single-label
+    [InlineData("*", false)]
+    [InlineData("*.com", false)]               // comodin sobre TLD
+    [InlineData("a.*.com", false)]             // comodin en el medio
+    [InlineData("exa mple.com", false)]        // espacio
+    [InlineData("http://example.com", false)]  // esquema / ':' / '/'
+    [InlineData("a..b.com", false)]            // label vacio
+    [InlineData("-bad.com", false)]            // label empieza con '-'
+    [InlineData("bad-.com", false)]            // label termina con '-'
+    public void IsValidPattern_Cases(string pattern, bool expected)
+        => Assert.Equal(expected, DomainMatcher.IsValidPattern(pattern));
 }

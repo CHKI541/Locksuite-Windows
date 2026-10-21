@@ -154,4 +154,10 @@ public sealed class LockSuiteClient
         var resp = await SendCommandAsync("TestWfp", sessionToken: sessionToken);
         return resp.Success ? (resp.Payload ?? "Test iniciado") : (resp.ErrorMessage ?? "Error");
     }
+
+    public async Task<bool> SetLearningModeAsync(bool enabled, string sessionToken)
+    {
+        var resp = await SendCommandAsync("SetLearningMode", payload: enabled ? "true" : "false", sessionToken: sessionToken);
+        return resp.Success;
+    }
 }

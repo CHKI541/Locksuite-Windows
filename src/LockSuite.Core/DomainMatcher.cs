@@ -56,4 +56,50 @@ public static class DomainMatcher
             if (PatternMatches(pat, host)) return true;
         return false;
     }
+
+    /// <summary>
+    /// Valida que un patron de lista blanca sea seguro de agregar.
+    /// Rechaza entradas peligrosas o malformadas que, por error del tutor,
+    /// abririan demasiado:
+    ///   - vacio o solo espacios
+    ///   - un unico label o un TLD suelto ("com", "localhost") -> habilitaria medio internet
+    ///   - comodin que no sea el prefijo "*." (ej. "a.*.com", "*google.com")
+    ///   - caracteres invalidos (espacios, '/', ':', '@', etc.)
+    ///   - labels vacios ("a..b.com", ".", "..")
+    /// Acepta: "ejemplo.com", "*.ejemplo.com", ".ejemplo.com", "sub.ejemplo.co.il".
+    /// </summary>
+    public static bool IsValidPattern(string? pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return false;
+
+        var raw = pattern.Trim().ToLowerInvariant();
+        if (raw.EndsWith(".", StringComparison.Ordinal)) raw = raw[..^1];
+
+        // Solo se admite el comodin como prefijo "*." (o el atajo ".").
+        string p;
+        if (raw.StartsWith("*.", StringComparison.Ordinal)) p = raw[2..];
+        else if (raw.StartsWith(".", StringComparison.Ordinal)) p = raw[1..];
+        else p = raw;
+
+        if (p.Length == 0) return false;
+        if (p.Contains('*')) return false;              // '*' solo valido como prefijo "*."
+
+        // Caracteres permitidos en el cuerpo del dominio: letras, digitos, '-', '.'
+        foreach (char c in p)
+        {
+            bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+            if (!ok) return false;
+        }
+
+        // Debe tener al menos dos labels no vacios (evita TLD/single-label como "com").
+        var labels = p.Split('.');
+        if (labels.Length < 2) return false;
+        foreach (var label in labels)
+        {
+            if (label.Length == 0) return false;        // no "..", ni bordes vacios
+            if (label.StartsWith("-") || label.EndsWith("-")) return false;
+        }
+
+        return true;
+    }
 }

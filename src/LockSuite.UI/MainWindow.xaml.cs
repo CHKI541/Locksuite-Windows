@@ -214,4 +214,24 @@ public partial class MainWindow : Window
         string result = await ViewModel.RunWfpTestAsync();
         MessageBox.Show(this, result, "Prueba WFP", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    private async void ChkLearningMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox chk)
+        {
+            if (!await EnsureAuthenticatedAsync())
+            {
+                chk.IsChecked = !chk.IsChecked; // Revertir si no se autenticó
+                return;
+            }
+
+            bool desired = chk.IsChecked == true;
+            bool ok = await ViewModel.SetLearningModeAsync(desired);
+            if (!ok)
+            {
+                chk.IsChecked = !chk.IsChecked;
+                MessageBox.Show(this, "No se pudo cambiar el modo aprendizaje.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ public static class Program
 {
     public const string ServiceName = "LockSuiteService";
     public const string DisplayName = "LockSuite Filtering Service";
+    public const string Version = "0.2.0";
 
     public static int Main(string[] args)
     {
@@ -34,6 +35,10 @@ public static class Program
                     return StartServiceCommand();
                 case "--stop":
                     return StopServiceCommand();
+                case "--set-password-file":
+                    return SetPasswordFromFile(args);
+                case "--reset-wfp":
+                    return ResetWfp();
                 case "--run":
                 case "--console":
                 case "--test-wfp":
@@ -61,7 +66,7 @@ public static class Program
     private static int RunConsole(string[] args)
     {
         Console.WriteLine("==================================================");
-        Console.WriteLine("  LockSuite Service — Modo Interactivo / Consola ");
+        Console.WriteLine($"  LockSuite Service {Version} — Modo Consola      ");
         Console.WriteLine("==================================================");
 
         bool testWfp = args.Contains("--test-wfp", StringComparer.OrdinalIgnoreCase);
@@ -121,6 +126,101 @@ public static class Program
                 ));
             });
 
+    private static ILoggerFactory CreateCliLoggerFactory() =>
+        LoggerFactory.Create(b =>
+        {
+            b.AddConsole();
+            b.SetMinimumLevel(LogLevel.Information);
+        });
+
+    /// <summary>
+    /// Fija la contraseña maestra inicial leyéndola de un archivo (lo usa el instalador para
+    /// que el tutor la defina durante la instalación, ANTES de que el usuario estándar pueda
+    /// abrir la app y fijarla él mismo). El archivo se sobrescribe y borra tras leerlo.
+    /// </summary>
+    private static int SetPasswordFromFile(string[] args)
+    {
+        if (args.Length < 2 || string.IsNullOrWhiteSpace(args[1]))
+        {
+            Console.Error.WriteLine("Uso: --set-password-file <ruta-del-archivo>");
+            return 2;
+        }
+
+        string path = args[1];
+        string password = string.Empty;
+        try
+        {
+            password = File.ReadAllText(path).Trim();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"No se pudo leer el archivo de contraseña: {ex.Message}");
+            return 1;
+        }
+        finally
+        {
+            TryWipeAndDelete(path);
+        }
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            Console.Error.WriteLine("El archivo de contraseña está vacío.");
+            return 1;
+        }
+
+        using var lf = CreateCliLoggerFactory();
+        var security = new SecurityManager(lf.CreateLogger<SecurityManager>());
+
+        if (security.IsPasswordSet())
+        {
+            Console.WriteLine("La contraseña maestra ya estaba configurada; no se sobrescribe.");
+            return 0;
+        }
+
+        bool ok = security.SetInitialPassword(password);
+        Console.WriteLine(ok ? "Contraseña maestra configurada." : "No se pudo configurar la contraseña maestra.");
+        return ok ? 0 : 1;
+    }
+
+    private static void TryWipeAndDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                var len = new FileInfo(path).Length;
+                if (len > 0) File.WriteAllBytes(path, new byte[len]);
+                File.Delete(path);
+            }
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Limpieza total de los artefactos de red de LockSuite (filtros WFP base + subcapa + NRPT).
+    /// Pensado para el desinstalador y para recuperación manual del administrador.
+    /// </summary>
+    private static int ResetWfp()
+    {
+        using var lf = CreateCliLoggerFactory();
+        try
+        {
+            var wfp = new WfpManager(lf.CreateLogger<WfpManager>());
+            wfp.HardReset();
+
+            var dns = new DnsConfigurator(lf.CreateLogger<DnsConfigurator>());
+            dns.RemoveNrptRedirect();
+
+            Console.WriteLine("Reset de WFP y NRPT completado.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error en --reset-wfp: {ex.Message}");
+            return 1;
+        }
+    }
+
     private static int InstallService()
     {
         string? exePath = Environment.ProcessPath;
@@ -132,14 +232,28 @@ public static class Program
 
         Console.WriteLine($"Instalando servicio '{ServiceName}'...");
         string scArgs = $"create {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto DisplayName= \"{DisplayName}\"";
-        return RunSc(scArgs);
+        int rc = RunSc(scArgs);
+        if (rc != 0) return rc;
+
+        // Descripción visible en services.msc
+        RunSc($"description {ServiceName} \"Filtro de internet por lista blanca (LockSuite). Bloquea todo el trafico saliente salvo los dominios permitidos por el tutor.\"");
+
+        // Auto-recuperación: reiniciar el servicio ante caídas (resiliencia / anti-evasión).
+        // reset= 86400s (contador de fallos se reinicia cada 24h); 3 reintentos con 5s.
+        RunSc($"failure {ServiceName} reset= 86400 actions= restart/5000/restart/5000/restart/5000");
+        RunSc($"failureflag {ServiceName} 1");
+
+        return 0;
     }
 
     private static int UninstallService()
     {
         Console.WriteLine($"Desinstalando servicio '{ServiceName}'...");
         RunSc($"stop {ServiceName}");
-        return RunSc($"delete {ServiceName}");
+        int rc = RunSc($"delete {ServiceName}");
+        // Limpieza de artefactos de red por si la parada no alcanzó a revertirlos.
+        ResetWfp();
+        return rc;
     }
 
     private static int StartServiceCommand()
@@ -183,16 +297,18 @@ public static class Program
 
     private static void PrintHelp()
     {
-        Console.WriteLine("Uso de LockSuite.Service:");
-        Console.WriteLine("  LockSuite.Service.exe [opción]");
+        Console.WriteLine($"LockSuite.Service {Version}");
+        Console.WriteLine("Uso: LockSuite.Service.exe [opción]");
         Console.WriteLine();
         Console.WriteLine("Opciones:");
-        Console.WriteLine("  --run / --console  Ejecuta el servicio en consola interactiva");
-        Console.WriteLine("  --test-wfp         Prueba WFP con auto-rollback automático en 30 segundos");
-        Console.WriteLine("  --install          Instala como Windows Service (requiere Administrador)");
-        Console.WriteLine("  --uninstall        Desinstala el Windows Service (requiere Administrador)");
-        Console.WriteLine("  --start            Inicia el Windows Service");
-        Console.WriteLine("  --stop             Detiene el Windows Service");
-        Console.WriteLine("  --help             Muestra esta ayuda");
+        Console.WriteLine("  --run / --console          Ejecuta el servicio en consola interactiva");
+        Console.WriteLine("  --test-wfp                 Prueba WFP con auto-rollback automático en 30 segundos");
+        Console.WriteLine("  --install                  Instala como Windows Service (requiere Administrador)");
+        Console.WriteLine("  --uninstall                Desinstala el Windows Service (requiere Administrador)");
+        Console.WriteLine("  --start                    Inicia el Windows Service");
+        Console.WriteLine("  --stop                     Detiene el Windows Service");
+        Console.WriteLine("  --set-password-file <ruta> Fija la contraseña maestra inicial desde un archivo");
+        Console.WriteLine("  --reset-wfp                Remueve filtros WFP + NRPT de LockSuite (recuperación)");
+        Console.WriteLine("  --help                     Muestra esta ayuda");
     }
 }

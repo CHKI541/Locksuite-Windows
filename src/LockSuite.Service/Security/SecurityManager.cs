@@ -113,6 +113,13 @@ public sealed class SecurityManager
                 return AuthResult.LockedOut;
             }
 
+            // El bloqueo expiro: reiniciar el contador para no re-bloquear al primer error posterior.
+            if (_lockoutUntil != DateTimeOffset.MinValue)
+            {
+                _consecutiveFailedAttempts = 0;
+                _lockoutUntil = DateTimeOffset.MinValue;
+            }
+
             if (!File.Exists(_authFilePath))
             {
                 _logger.LogWarning("Autenticación solicitada pero la contraseña maestra no fue inicializada");

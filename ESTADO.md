@@ -1,7 +1,7 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.2 — Core compilado y validado; Servicio de Windows (WFP + DNS Local + DPAPI + IPC), GUI WPF e Instalador Inno Setup implementados; 49/49 tests pasando.**
-Última actualización: 2026-10-21, sesión 4 (Antigravity).
+Versión actual: **0.2.0 — Revisión de producción validada y testeada (70/70 tests pasando). Publicación self-contained e instalador `LockSuiteSetup-0.2.0.exe` generado exitosamente.**
+Última actualización: 2026-10-21, sesión 6 (Antigravity).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -108,11 +108,34 @@ Se aclaró y documentó el contexto (computadora Kosher para comunidad judía or
 - **Suite de pruebas de integración y servicio:** 23 pruebas añadidas en `LockSuite.Service.Tests`. Total: 49/49 pruebas pasando.
 - **Instalador:** Script Inno Setup 6 (`installer/LockSuiteSetup.iss`) y validación de publicación en Release.
 
+### Sesión 5 — 2026-10-21 (Revisión para producción — Claude, sin terminal Windows)
+Revisión a fondo (bugs, evasión, arranque, rendimiento, UX). Aplicado **en código**; compilación/tests/VM a cargo de Antigravity. Detalle en `docs/REVISION_PRODUCCION.md`.
+- **Correctness/concurrencia:** snapshot inmutable de patrones en `ConfigManager` (fix de carrera + menos CPU por consulta); stats DNS con `Interlocked`; reset de lockout al expirar; validación de dominios (`IsValidPattern`); fix de liberación de memoria nativa IPv6.
+- **Anti-evasión / arranque:** contraseña del tutor fijada **en la instalación** (cierra el hueco de que el usuario estándar la fije primero: nuevo `--set-password-file` + página en el instalador); servicio tolerante a fallo de bind DNS (`IsListening`, ya no se cae); auto-recuperación `sc failure`; `--reset-wfp` + limpieza en la desinstalación.
+- **WFP:** claves de filtro fijas + instalación **atómica (transacción) e idempotente** (no acumula filtros duplicados al reiniciar); parada **ordenada** revierte WFP/NRPT, sólo una **caída** deja el estado fail-closed; `HardReset`.
+- **Rendimiento:** `LearningManager` con throttle de escritura a disco (antes escribía por cada consulta bloqueada); NRPT en una sola invocación de PowerShell; back-pressure en el resolutor.
+- **UX:** avisos de "sin conexión" y "modo simulación (el filtro NO está activo)"; estado del resolutor DNS; toggle de modo aprendizaje funcional (IPC `SetLearningMode`).
+- **Docs:** `docs/REVISION_PRODUCCION.md` y `HANDOFF_ANTIGRAVITY.md` reescrito con comandos exactos y matriz de validación en VM.
+
+### Sesión 6 — 2026-10-21 (Verificación, Build, 70 Tests y Empaquetado v0.2.0 — Antigravity)
+- **Compilación verificada:** Toda la solución compila en Release sin advertencias ni errores (`LockSuite.sln`).
+- **Tests ejecutados:** Se corrieron los tests en Release; pasan los **70/70 tests (100% verde)**:
+  - `LockSuite.Core.Tests`: 43 tests (incluye validación exhaustiva de patrones de dominio y comodines).
+  - `LockSuite.Service.Tests`: 27 tests (incluye DNS, WFP, IPC, LearningMode con buffer y persistencia diferida, y DPAPI/Lockout).
+- **Publicación autónoma (self-contained):** Publicados `LockSuite.Service` y `LockSuite.UI` para `win-x64` con runtime .NET 8 embebido en `installer\publish\service` e `installer\publish\ui`.
+- **Instalador generado:** Se instaló Inno Setup 6.7.3 en la máquina, se corrigieron los SIDs de permisos en `LockSuiteSetup.iss` (`admins-full users-readexec`), y se compiló exitosamente el instalador independiente:
+  `bin\installer\LockSuiteSetup-0.2.0.exe` (73.6 MB).
+
 ---
 
 ## 8. Próximo paso
 
-El proyecto está completamente implementado y con todos los tests pasando en verde.
+El instalador **`bin\installer\LockSuiteSetup-0.2.0.exe`** ya está generado, es autónomo y no requiere tener .NET instalado en el equipo final.
 El **próximo paso concreto** es:
-1. Probar el ejecutable publicado o el instalador en una **máquina virtual limpia de Windows 11** para validar el comportamiento del filtro en vivo en un entorno aislado sin riesgo de desconexión del host.
-2. Validar el flujo de usuario: arranque del servicio -> navegación a sitios permitidos (Google, Mercado Pago) -> detección en "Bloqueados recientes" de dominios externos -> autorización con contraseña de tutor -> verificación de apertura de regla WFP.
+1. Copiar `bin\installer\LockSuiteSetup-0.2.0.exe` a una **máquina virtual limpia de Windows 11**.
+2. Ejecutar la instalación desde cuenta de administrador, ingresar la contraseña maestra del tutor durante el asistente, y verificar el servicio (`sc query LockSuiteService`).
+3. Cambiar a una cuenta estándar y probar la navegación en vivo:
+   - Sitios permitidos (`google.com`, `mercadopago.com.ar`) deben cargar normalmente.
+   - Sitios no permitidos (`facebook.com`, `instagram.com`) deben dar error inmediato.
+   - En la interfaz gráfica, la pestaña "Bloqueados recientes" debe mostrar las consultas rechazadas y permitir autorizarlas con 1 clic ingresando la clave de tutor.
+4. Validar la matriz de evasión (§4.5 de `HANDOFF_ANTIGRAVITY.md`).
