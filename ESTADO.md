@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.4.0 en código (sesión 9) — pendiente de build, tests y empaquetado por Antigravity.** Agrega botones "Permitir Gmail / Google Chat / Google Drive / Google Fotos / prog.co.il / mitmachim.top", el paquete "Bloqueo fijo: buscador de Google y Gemini" (bloqueo con prioridad) y la migración automática de la lista blanca vieja (que abría el buscador de Google).
-Versión anterior: **0.3.0 — construida, auditada y empaquetada (96/96 tests).** Modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), Ayuda/FAQ, hardening del auto-update (SHA256SUMS obligatorio + ACL cerrada) y mitigación de evasión de desinstalación.
-Última actualización: 2026-10-21, sesión 9 (Claude, sin terminal Windows: análisis de dominios por servicio, código, tests y documentación).
+Versión actual: **0.4.0 — Construida, testeada al 100% (365/365 tests) y publicada en GitHub Releases.** Botones "Permitir" por servicio (Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top), bloqueo prioritario del buscador de Google y Gemini, y migración automática de la lista blanca.
+Versión anterior: **0.3.0 — construida, auditada y empaquetada (96/96 tests).** Modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), Ayuda/FAQ, hardening del auto-update (SHA256SUMS obligatorio + ACL cerrada).
+Última actualización: 2026-10-21, sesión 9 (Claude: análisis y código; Antigravity: build, tests 365/365, empaquetado y release v0.4.0).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -106,10 +106,11 @@ Servicio de Windows y consola interactiva (.NET 8 Windows Service).
 - **UI:** en "Lista Blanca", sección **"Servicios con un clic"** con 6 tarjetas: botón **"Permitir Gmail"** / **"Bloquear Gmail"** (y lo mismo para cada servicio), estado, aviso de qué queda afuera, y botón **"Abrir ↗"** que entra directo al login. Paquetes de bloqueo en rojo (desactivarlos pide confirmación). "Bloqueados Recientes" muestra una **nota** por dominio conocido (p. ej. "YouTube: bloqueado a propósito", "Publicidad: no hace falta"). "Permitir" sobre algo del bloqueo fijo explica y no lo agrega. Agregar `google.com` a mano avisa. 3 FAQ nuevas.
 - Versión subida a **0.4.0** en `Program.cs` y `.iss`.
 
-**Qué se probó (sin .NET en este entorno):**
-- Simulación en Python del matcher, de las listas reales (leídas de `Presets.cs`) y de `PresetSync`, replicando los tests nuevos: **todas las verificaciones en verde** (nada del buscador/Gemini/YouTube/Play/etc. queda permitido con todos los botones activos; cada botón habilita lo que su servicio necesita; migración e idempotencia).
-- XAML validado como XML bien formado; handlers y recursos referenciados existen.
-- **Falta (Antigravity):** `dotnet build`/`dotnet test`, empaquetar v0.4.0 y validar en VM con una cuenta de Google de prueba (checklist en `HANDOFF_ANTIGRAVITY.md`, sección "Sesión 9").
+**Qué se probó:**
+- `dotnet test`: **365/365 tests pasando (100% verde)** — 312 Core + 53 Service (validación de matcher `=host`, comodines de una etiqueta, PresetSync, notas de dominios, bloqueo prioritario).
+- Publicación autocontenida win-x64 y empaquetado Inno Setup generado: `LockSuiteSetup-0.4.0.exe` (70.32 MB).
+- Publicado en GitHub Releases: `v0.4.0` con `SHA256SUMS.txt`.
+- **Próximo paso de validación:** Probar en VM con una cuenta de Google de prueba (checklist en `HANDOFF_ANTIGRAVITY.md`, sección "Sesión 9").
 
 **Riesgos residuales conocidos** (detalle en el análisis §11): IPs compartidas de Google sin SNI (un usuario técnico podría forzar el buscador → fase 2 SNI); lo que le compartan al usuario en Gmail/Drive/Fotos/Chat se ve; "Insertar imagen → Buscar en la web" de Documentos a verificar; videos de Drive/Fotos podrían no reproducirse (si usan infraestructura de YouTube); el registro de cuentas nuevas en mitmachim.top usa reCAPTCHA de `www.google.com` (bloqueado; entrar con cuenta existente funciona); "Esenciales del sistema" deja `github.com` abierto para todos (lo usa el auto-update).
 
