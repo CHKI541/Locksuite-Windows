@@ -27,6 +27,7 @@ public sealed class NamedPipeServer : IDisposable
     private readonly DnsResolver _dnsResolver;
     private readonly LearningManager _learningManager;
     private readonly TrialManager? _trialManager;
+    private readonly LockSuite.Service.CaptivePortal.CaptivePortalManager? _captivePortal;
     private readonly string _pipeName;
 
     private CancellationTokenSource? _cts;
@@ -40,7 +41,8 @@ public sealed class NamedPipeServer : IDisposable
         DnsResolver dnsResolver,
         LearningManager learningManager,
         TrialManager? trialManager = null,
-        string? pipeName = null)
+        string? pipeName = null,
+        LockSuite.Service.CaptivePortal.CaptivePortalManager? captivePortal = null)
     {
         _logger = logger;
         _configManager = configManager;
@@ -49,6 +51,7 @@ public sealed class NamedPipeServer : IDisposable
         _dnsResolver = dnsResolver;
         _learningManager = learningManager;
         _trialManager = trialManager;
+        _captivePortal = captivePortal;
         _pipeName = pipeName ?? IpcConstants.PipeName;
     }
 
@@ -220,7 +223,10 @@ public sealed class NamedPipeServer : IDisposable
                         TotalQueries = _dnsResolver.TotalQueries,
                         AllowedQueries = _dnsResolver.AllowedQueries,
                         BlockedQueries = _dnsResolver.BlockedQueries,
-                        WhitelistPatternsCount = _configManager.ActivePatternCount
+                        WhitelistPatternsCount = _configManager.ActivePatternCount,
+                        AllowLocalNetwork = _configManager.AllowLocalNetwork,
+                        CaptivePortalActive = _captivePortal?.IsActive ?? false,
+                        CaptivePortalRemainingSeconds = _captivePortal?.RemainingSeconds ?? 0
                     };
                     return IpcResponse.Ok(JsonSerializer.Serialize(status));
 
@@ -357,6 +363,27 @@ public sealed class NamedPipeServer : IDisposable
                         ? TrialEndAction.AutoRemove
                         : TrialEndAction.Prompt;
                     _trialManager.StartTrial(setDto.DurationMinutes, endAction, setDto.RequireTutorToRemove);
+                    return IpcResponse.Ok();
+
+                case "SetAllowLocalNetwork":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    if (!bool.TryParse(request.Payload, out bool allowLocal))
+                        return IpcResponse.Fail("Valor invalido");
+                    _configManager.SetAllowLocalNetwork(allowLocal);
+                    return IpcResponse.Ok();
+
+                case "StartCaptivePortal":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    if (_captivePortal == null) return IpcResponse.Fail("Modo portal cautivo no disponible");
+                    int minutes = int.TryParse(request.Payload, out int m) ? m : LockSuite.Service.CaptivePortal.CaptivePortalManager.DefaultMinutes;
+                    int opened = _captivePortal.Start(minutes);
+                    return opened > 0
+                        ? IpcResponse.Ok(opened.ToString())
+                        : IpcResponse.Fail("No se encontró una red local (¿el equipo está conectado a la Wi-Fi?).");
+
+                case "EndCaptivePortal":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    _captivePortal?.End();
                     return IpcResponse.Ok();
 
                 default:

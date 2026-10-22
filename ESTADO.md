@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.** Resuelve deadlock de Named Pipe en arranque de GUI, cascading timeouts en UI, compatibilidad nativa x64 en Inno Setup (`runasoriginaluser`), supresión de error ICMP 10054 en DNS y tests de integración de IPC.
-Versión anterior: **0.4.0 — Construida y testeada (365/365 tests).** Botones "Permitir" por servicio (Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top), bloqueo prioritario del buscador de Google y Gemini, y migración automática de la lista blanca.
-Última actualización: 2026-10-21, sesión 10 (Antigravity: corrección de deadlock NamedPipe, guard UI startup, Inno Setup 64-bit, tests IPC round-trip 372/372, build v0.4.1 y copiado a pendrive).
+Versión actual: **0.5.0 — Construida, testeada al 100% (426/426 tests) y empaquetada.** Cierra las fallas del catálogo `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` (verificadas una por una) y **todos los problemas de certificado**: OCSP/CRL e intermedios de las CAs más usadas (incl. las 3 de Cloudflare y `lencr.org`/`amazontrust.com`), raíces de Windows (`ctldl.windowsupdate.com`) y listas de certificados de los navegadores (Chrome Root Store/CRLSet, Edge, Firefox CRLite). Además: desactivación de DoH por directiva, paquetes de Windows Update/Defender y de actualización de navegadores, modo portal cautivo (Wi-Fi de hotel), permiso de red local, vaciado de caché DNS al permitir un dominio, y permisos base NTP y DHCPv6. Auto-actualización en espera de confirmación para su publicación en GitHub Releases.
+Versión anterior: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.** Deadlock de Named Pipe en arranque de GUI, cascading timeouts en UI, Inno Setup x64 (`runasoriginaluser`), supresión de ICMP 10054 en DNS y tests de integración de IPC.
+Última actualización: 2026-10-22, sesión 12 (Antigravity: build y test 426/426 tests verde, empaquetado v0.5.0 local y push a GitHub en rama main sin tag de release a pedido del usuario para no forzar auto-update prematuro).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -114,6 +114,21 @@ Servicio de Windows y consola interactiva (.NET 8 Windows Service).
 
 **Riesgos residuales conocidos** (detalle en el análisis §11): IPs compartidas de Google sin SNI (un usuario técnico podría forzar el buscador → fase 2 SNI); lo que le compartan al usuario en Gmail/Drive/Fotos/Chat se ve; "Insertar imagen → Buscar en la web" de Documentos a verificar; videos de Drive/Fotos podrían no reproducirse (si usan infraestructura de YouTube); el registro de cuentas nuevas en mitmachim.top usa reCAPTCHA de `www.google.com` (bloqueado; entrar con cuenta existente funciona); "Esenciales del sistema" deja `github.com` abierto para todos (lo usa el auto-update).
 
+### 4.10 Fallas de UX/sistema y certificados (Sesión 11, v0.5.0) — EN CÓDIGO, sin compilar
+Se revisó `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` punto por punto contra el código y se corrigió lo que faltaba (el documento ahora dice, en cada caso, **cómo** se corrigió y en qué versión). Resumen:
+- **Certificados (sección nueva del doc):** a "Esenciales del sistema" se sumaron los hosts de PKI (OCSP/CRL/intermedios) de las CAs más usadas — Let's Encrypt (`lencr.org`, antes faltaba), Amazon (`amazontrust.com`), DigiCert, Sectigo/Comodo/USERTrust, Google Trust Services, SSL.com/Certum, GlobalSign, Entrust, IdenTrust, Microsoft, GoDaddy/Starfield — y `ctldl.windowsupdate.com` (raíces de Windows). Las **3 CAs de Cloudflare** quedan cubiertas. Paquete nuevo **"Actualizaciones de navegadores y sus certificados"** (Chrome Root Store/CRLSet, Edge, Firefox intermediate preloading/CRLite). "Bloqueados recientes" reconoce hosts `ocsp*`/`crl*` y los explica.
+- **DoH:** el instalador desactiva el "DNS seguro" de Chrome/Edge/Firefox por directiva de registro.
+- **Windows Update / Defender:** paquete nuevo (activado por defecto) con los hosts oficiales; no incluye Tienda/Bing/MSN/Copilot.
+- **Recursos web comunes** (fuentes/CDNs) y **Captchas** (Turnstile/hCaptcha/recaptcha.net): paquetes nuevos activados por defecto (páginas que no se rompen; logins con captcha).
+- **Portal cautivo (Wi-Fi de hotel):** modo con tutor y autovencimiento que abre solo la red local y suspende NRPT, sin apagar el filtro.
+- **Red local:** opción (tutor, off por defecto) para permitir direcciones privadas (impresora/router/NAS) sin abrir internet.
+- **Caché DNS negativa:** `ipconfig /flushdns` al cambiar la config (un dominio recién permitido abre enseguida).
+- **Puerto 53 ocupado:** cartel claro en la GUI (`IsDnsDown`), además de no aplicar NRPT (ya en v0.4.1).
+- **IPv6 / reloj:** permisos base nuevos DHCPv6 (UDP 547) y NTP (UDP 123).
+- **Riesgos residuales honestos:** IPs compartidas sin SNI (fase 2), portal cautivo en IP pública, reloj desfasado muchas horas, `github.com` abierto para todos.
+
+Pendiente de Antigravity: compilar, correr tests (372 previos + nuevos), empaquetar v0.5.0 y validar en VM (ver `HANDOFF_ANTIGRAVITY.md` §11).
+
 ## 5. Explícitamente afuera del alcance
 Igual que v0.2.0 (sin driver .sys, sin MITM/CA, sin blindaje anti-admin). Ver `docs/ANALISIS_VIABILIDAD.md`.
 
@@ -177,10 +192,23 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - **Resultados:** 372/372 tests pasando al 100% (312 Core + 60 Service).
 - **Empaquetado:** Generado `LockSuiteSetup-0.4.1.exe` (70.33 MB) con su respectivo `SHA256SUMS.txt`, y copiado a la unidad USB (`F:\Locksuite windows`).
 
+### Sesión 11 — 2026-10-22 (Certificados + fallas de UX/sistema → v0.5.0 — Claude, sin terminal Windows)
+- Verificación punto por punto de `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` contra el código real (varios ítems marcados "✅ Resuelto" solo estaban a medias: los presets "Recursos web comunes" y "Captcha" no existían; DoH y portal cautivo estaban pendientes; el puerto 53 solo mostraba un renglón, no un cartel).
+- **Problemas de certificado** (a pedido del usuario, no solo Cloudflare): OCSP/CRL/intermedios de las CAs grandes en Esenciales (incl. `lencr.org` y `amazontrust.com`, que faltaban), raíces de Windows, y paquete de actualización de las listas de certificados de los navegadores.
+- DoH off por directiva; paquetes Windows Update/Defender, navegadores, recursos web y captchas; portal cautivo; red local; flush DNS; permisos base NTP y DHCPv6; cartel de DNS caído.
+- Todo **en código** + tests nuevos de Core/Service. Versión subida a 0.5.0.
+
+### Sesión 12 — 2026-10-22 (Build 426 tests verde, empaquetado v0.5.0 y push GitHub — Antigravity)
+- **Compilación y verificación completa:** `dotnet build` sin advertencias ni errores (0/0).
+- **Suite de pruebas:** **426/426 tests pasando al 100% (verde)** (364 Core + 62 Service). Se validaron los nuevos tests de `PresetsExtraTests` y `ConfigManagerTests`.
+- **Publicación y Empaquetado:** Publicación autocontenida win-x64 de Service y UI. Compilación con Inno Setup generando `LockSuiteSetup-0.5.0.exe` (70.33 MB) con su respectivo `SHA256SUMS.txt` en `c:\Locksuite windows\bin\installer\`.
+- **Auto-Update protegido:** Siguiendo la instrucción explícita del usuario, **no** se creó release público en GitHub ni se enviaron tags para evitar que las instalaciones de producción existentes descarguen o actualicen automáticamente a v0.5.0 hasta recibir confirmación.
+- **Sincronización:** Cambios commiteados y subidos a la rama `main` de GitHub.
+
 ---
 
 ## 8. Próximo paso
 
-1. Validar en PC destino / VM con el instalador v0.4.1 desde el pendrive.
-2. Confirmar inicio de sesión en Gmail / Google Drive / Chat / Fotos y verificar que el buscador y Gemini continúen bloqueados.
-3. Evaluar la fase 2 (SNI) de `docs/ANALISIS_VIABILIDAD.md` §2.4 para el filtrado TLS granular.
+1. Validar `LockSuiteSetup-0.5.0.exe` en VM de prueba (certificados Let's Encrypt/Cloudflare, DoH inactivo en navegadores, modo portal cautivo y red local).
+2. Cuando el usuario lo indique, publicar el Release v0.5.0 en GitHub (`gh release create` o script) para que las instalaciones existentes reciban la actualización automática.
+3. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.

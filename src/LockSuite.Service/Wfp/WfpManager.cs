@@ -30,10 +30,29 @@ public sealed class WfpManager : IWfpManager
     private static readonly Guid KeyServiceAppId = new("9b1d2e01-0005-4a01-8b01-10c6b7e5a005");
     private static readonly Guid KeyBlockV4      = new("9b1d2e01-0006-4a01-8b01-10c6b7e5a006");
     private static readonly Guid KeyBlockV6      = new("9b1d2e01-0007-4a01-8b01-10c6b7e5a007");
+    // Permisos ADITIVOS (best-effort, fuera de la transaccion base): NTP, DHCPv6 y red local.
+    private static readonly Guid KeyNtpV4        = new("9b1d2e01-0008-4a01-8b01-10c6b7e5a008");
+    private static readonly Guid KeyDhcpV6       = new("9b1d2e01-0009-4a01-8b01-10c6b7e5a009");
+    private static readonly Guid KeyLocalNet10   = new("9b1d2e01-000a-4a01-8b01-10c6b7e5a00a");
+    private static readonly Guid KeyLocalNet172  = new("9b1d2e01-000b-4a01-8b01-10c6b7e5a00b");
+    private static readonly Guid KeyLocalNet192  = new("9b1d2e01-000c-4a01-8b01-10c6b7e5a00c");
+    private static readonly Guid KeyLocalNet169  = new("9b1d2e01-000d-4a01-8b01-10c6b7e5a00d");
+
+    private static readonly Guid[] LocalNetKeys = { KeyLocalNet10, KeyLocalNet172, KeyLocalNet192, KeyLocalNet169 };
 
     private static readonly Guid[] BaseFilterKeys =
     {
-        KeyLoopbackV4, KeyLoopbackV6, KeyDhcpV4, KeyLocalDns, KeyServiceAppId, KeyBlockV4, KeyBlockV6
+        KeyLoopbackV4, KeyLoopbackV6, KeyDhcpV4, KeyLocalDns, KeyServiceAppId, KeyBlockV4, KeyBlockV6,
+        KeyNtpV4, KeyDhcpV6, KeyLocalNet10, KeyLocalNet172, KeyLocalNet192, KeyLocalNet169
+    };
+
+    // (red local: direcciones privadas addr/mask en host byte order)
+    private static readonly (uint Addr, uint Mask, Guid Key, string Name)[] PrivateRangesV4 =
+    {
+        (0x0A000000u, 0xFF000000u, KeyLocalNet10,  "10.0.0.0/8"),      // 10.0.0.0/8
+        (0xAC100000u, 0xFFF00000u, KeyLocalNet172, "172.16.0.0/12"),   // 172.16.0.0/12
+        (0xC0A80000u, 0xFFFF0000u, KeyLocalNet192, "192.168.0.0/16"),  // 192.168.0.0/16
+        (0xA9FE0000u, 0xFFFF0000u, KeyLocalNet169, "169.254.0.0/16"),  // link-local
     };
 
     // Control de reglas dinamicas (por IP) con claves aleatorias, rastreadas por id en memoria.
@@ -53,18 +72,24 @@ public sealed class WfpManager : IWfpManager
     public bool IsSimulationMode => _isSimulationMode;
     public int ActiveDynamicRulesCount => _dynamicRules.Count;
 
+    private bool _allowLocalNetwork;
+    public bool AllowLocalNetwork => _allowLocalNetwork;
+
     public WfpManager(ILogger<WfpManager> logger)
     {
         _logger = logger;
     }
 
-    public void Initialize(bool failClosed)
+    public void Initialize(bool failClosed) => Initialize(failClosed, allowLocalNetwork: false);
+
+    public void Initialize(bool failClosed, bool allowLocalNetwork)
     {
         lock (_engineLock)
         {
+            _allowLocalNetwork = allowLocalNetwork;
             if (_isActive) return;
 
-            _logger.LogInformation("Inicializando Windows Filtering Platform (WFP)... FailClosed={FailClosed}", failClosed);
+            _logger.LogInformation("Inicializando Windows Filtering Platform (WFP)... FailClosed={FailClosed}, RedLocal={Local}", failClosed, allowLocalNetwork);
 
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
@@ -106,6 +131,8 @@ public sealed class WfpManager : IWfpManager
             try
             {
                 InstallBaseFiltersTransacted();
+                // Permisos ADITIVOS, best-effort: su fallo NO tira abajo el filtro base (no fail-open).
+                InstallOptionalPermits();
                 _isActive = true;
                 _isSimulationMode = false;
                 StartExpirationTimer();
@@ -349,6 +376,158 @@ public sealed class WfpManager : IWfpManager
         {
             NativeMethods.FwpmTransactionAbort0(_engineHandle);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Permisos ADITIVOS fuera de la transaccion base. Se agregan uno por uno y cada fallo se
+    /// registra pero NO interrumpe al resto ni toca los filtros base: asi un bug en uno de estos
+    /// permisos nunca puede dejar el filtro en modo simulacion (fail-open). Se borran por clave
+    /// antes de recrearse (idempotente). Requiere el engine abierto y el lock tomado.
+    /// </summary>
+    private void InstallOptionalPermits()
+    {
+        if (_engineHandle == IntPtr.Zero) return;
+
+        // NTP (UDP 123): sincronizacion de hora robusta, independiente de que time.windows.com
+        // resuelva a tiempo. Sin hora correcta, TODOS los HTTPS fallan por certificado.
+        TryAddPortPermit(KeyNtpV4, WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+            WfpConstants.PORT_NTP, "Permit NTP (hora)");
+
+        // DHCPv6 (UDP 547): sin esto, en redes solo-IPv6 el equipo no obtiene direccion ni DNS.
+        TryAddPortPermit(KeyDhcpV6, WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V6,
+            WfpConstants.PORT_DHCPV6_SERVER, "Permit DHCPv6");
+
+        ApplyLocalNetworkPermits(_allowLocalNetwork);
+    }
+
+    /// <summary>
+    /// Activa o desactiva en vivo el permiso de red local (direcciones privadas), sin reiniciar
+    /// el servicio. Lo llama el servicio cuando el tutor cambia la opcion en la configuracion.
+    /// </summary>
+    public void SetAllowLocalNetwork(bool enabled)
+    {
+        lock (_engineLock)
+        {
+            _allowLocalNetwork = enabled;
+            if (_isSimulationMode || _engineHandle == IntPtr.Zero) return;
+            ApplyLocalNetworkPermits(enabled);
+        }
+    }
+
+    // Agrega o quita los 4 permisos de rangos privados (IPv4). Idempotente.
+    private void ApplyLocalNetworkPermits(bool enabled)
+    {
+        foreach (var r in PrivateRangesV4)
+        {
+            var key = r.Key;
+            NativeMethods.FwpmFilterDeleteByKey0(_engineHandle, in key);   // "no encontrado" se ignora
+        }
+        if (!enabled) return;
+
+        foreach (var r in PrivateRangesV4)
+        {
+            try { AddSubnetPermitFilter(r.Key, r.Addr, r.Mask, $"Permit red local {r.Name}"); }
+            catch (Exception ex) { _logger.LogWarning(ex, "No se pudo agregar el permiso de red local {Range}", r.Name); }
+        }
+        _logger.LogInformation("Permiso de red local (direcciones privadas) ACTIVADO.");
+    }
+
+    // Permiso UDP saliente a un puerto remoto dado (como el de DHCP, pero generico). Best-effort.
+    private void TryAddPortPermit(Guid filterKey, Guid layerGuid, ushort remotePort, string label)
+    {
+        try
+        {
+            var k = filterKey;
+            NativeMethods.FwpmFilterDeleteByKey0(_engineHandle, in k);
+
+            var conditions = new FWPM_FILTER_CONDITION0[2];
+            conditions[0] = new FWPM_FILTER_CONDITION0
+            {
+                fieldKey = WfpConstants.FWPM_CONDITION_IP_PROTOCOL,
+                matchType = WfpConstants.FWP_MATCH_EQUAL,
+                conditionValue = new FWP_CONDITION_VALUE0 { type = WfpConstants.FWP_UINT8, uint8 = WfpConstants.IPPROTO_UDP }
+            };
+            conditions[1] = new FWPM_FILTER_CONDITION0
+            {
+                fieldKey = WfpConstants.FWPM_CONDITION_IP_REMOTE_PORT,
+                matchType = WfpConstants.FWP_MATCH_EQUAL,
+                conditionValue = new FWP_CONDITION_VALUE0 { type = WfpConstants.FWP_UINT16, uint16 = remotePort }
+            };
+
+            int itemSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
+            IntPtr condArrayPtr = Marshal.AllocHGlobal(itemSize * conditions.Length);
+            try
+            {
+                for (int i = 0; i < conditions.Length; i++)
+                    Marshal.StructureToPtr(conditions[i], IntPtr.Add(condArrayPtr, i * itemSize), false);
+
+                var filter = new FWPM_FILTER0
+                {
+                    filterKey = filterKey,
+                    displayData = new FWPM_DISPLAY_DATA0 { name = "LockSuite " + label, description = label },
+                    layerKey = layerGuid,
+                    subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
+                    weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                    numFilterConditions = (uint)conditions.Length,
+                    filterCondition = condArrayPtr,
+                    action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
+                };
+
+                uint status = NativeMethods.FwpmFilterAdd0(_engineHandle, in filter, IntPtr.Zero, out _);
+                if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+                    _logger.LogWarning("No se pudo agregar '{Label}' (0x{Status:X8}).", label, status);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(condArrayPtr);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error al agregar el permiso '{Label}'.", label);
+        }
+    }
+
+    // Permiso saliente a un rango IPv4 (direccion + mascara, en host byte order).
+    private void AddSubnetPermitFilter(Guid filterKey, uint addr, uint mask, string label)
+    {
+        IntPtr addrMaskPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWP_V4_ADDR_AND_MASK>());
+        IntPtr condPtr = IntPtr.Zero;
+        try
+        {
+            Marshal.StructureToPtr(new FWP_V4_ADDR_AND_MASK { addr = addr, mask = mask }, addrMaskPtr, false);
+
+            var condition = new FWPM_FILTER_CONDITION0
+            {
+                fieldKey = WfpConstants.FWPM_CONDITION_IP_REMOTE_ADDRESS,
+                matchType = WfpConstants.FWP_MATCH_EQUAL,
+                conditionValue = new FWP_CONDITION_VALUE0 { type = WfpConstants.FWP_V4_ADDR_MASK, v4AddrMask = addrMaskPtr }
+            };
+
+            condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+            Marshal.StructureToPtr(condition, condPtr, false);
+
+            var filter = new FWPM_FILTER0
+            {
+                filterKey = filterKey,
+                displayData = new FWPM_DISPLAY_DATA0 { name = "LockSuite " + label, description = "Permite la red local (direcciones privadas)" },
+                layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+                subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
+                weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 60 },
+                numFilterConditions = 1,
+                filterCondition = condPtr,
+                action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
+            };
+
+            uint status = NativeMethods.FwpmFilterAdd0(_engineHandle, in filter, IntPtr.Zero, out _);
+            if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+                throw new InvalidOperationException($"FwpmFilterAdd0 ('{label}') falló. Código: 0x{status:X8}");
+        }
+        finally
+        {
+            if (condPtr != IntPtr.Zero) Marshal.FreeHGlobal(condPtr);
+            Marshal.FreeHGlobal(addrMaskPtr);
         }
     }
 

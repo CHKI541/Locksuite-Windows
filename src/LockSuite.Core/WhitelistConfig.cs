@@ -66,6 +66,15 @@ public sealed class WhitelistConfig
     [JsonPropertyName("learningMode")]
     public bool LearningMode { get; set; } = true;
 
+    /// <summary>
+    /// Permitir la red LOCAL (direcciones privadas: impresoras, router, pendrives de red, etc.).
+    /// Por defecto false: el filtro corta todo lo que no esté en la lista, incluida la red de la casa.
+    /// Internet sigue filtrado igual: solo se abren direcciones privadas (10.x, 172.16-31.x, 192.168.x,
+    /// 169.254.x), multicast y broadcast, que no salen a internet. Lo cambia el tutor (sesión 11).
+    /// </summary>
+    [JsonPropertyName("allowLocalNetwork")]
+    public bool AllowLocalNetwork { get; set; }
+
     [JsonPropertyName("packs")]
     public List<DomainPack> Packs { get; set; } = new();
 

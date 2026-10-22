@@ -237,3 +237,82 @@ Preparación: instalar como admin; abrir LockSuite → Configuración → dejar 
 1. Si algún servicio necesitó un host que no estaba: anotarlo (host + para qué) en `ESTADO.md` → se suma a `Presets.cs` en la próxima sesión (la actualización lo propaga sola a los equipos vía `PresetSync`).
 2. Actualizar `ESTADO.md` (resultados reales, nueva línea de log, próximo paso) y commit, p. ej.:
    `feat(v0.4.0): botones Permitir por servicio (Gmail/Chat/Drive/Fotos/prog/mitmachim), bloqueo fijo del buscador de Google y Gemini, migración de presets`
+
+---
+
+# SESIÓN 11 (Claude) — certificados, DoH, Windows/Defender/navegadores, portal cautivo, red local, caché DNS → v0.5.0
+
+> Claude corrió en Linux **sin `dotnet`** (y el workspace Linux del dispositivo no levantó): **no compiló ni corrió los tests**. Revisó la lógica a mano y balanceó llaves/paréntesis de cada archivo. Lo que sigue es lo que falta ejecutar en Windows. Si algo no compila, es de esta sesión: reportar archivo/línea.
+> **v0.5.0 incluye todo lo de v0.4.1.** El foco fue cerrar las fallas del documento `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` (verificadas una por una contra el código) y **todos los problemas de certificado**.
+
+## 0. Archivos creados/modificados en la sesión 11
+
+**Core:**
+- `Presets.cs`: hosts de PKI de las CAs grandes en `SystemDomains` (incl. `lencr.org`, `amazontrust.com`, `ssl.com`/`certum.pl`, `ctldl.windowsupdate.com`, Sectigo, etc.); paquetes nuevos `windows-update`, `browser-updates`, `web-commons`, `captcha` (todos con `EnabledByDefault`/`EnabledOnUpgrade = true`, NO son servicios ni bloqueos); notas nuevas en "Bloqueados recientes" (DoH canary, tiendas/IA de Microsoft, CDNs arbitrarias, CAs); helper `LooksLikeCertificateInfrastructure()` + uso en `ExplainBlocked()`.
+- `WhitelistConfig.cs`: nueva opción `AllowLocalNetwork` (default false).
+- `IpcMessages.cs`: `ServiceStatusDto` + `AllowLocalNetwork`, `CaptivePortalActive`, `CaptivePortalRemainingSeconds`.
+- `LockSuiteClient.cs`: `SetAllowLocalNetworkAsync`, `StartCaptivePortalAsync`, `EndCaptivePortalAsync`.
+
+**Service:**
+- `Wfp/WfpConstants.cs`: `PORT_NTP = 123`.
+- `Wfp/WfpManager.cs`: permisos **aditivos best-effort** (fuera de la transacción base, por eso un fallo suyo NO puede dejar el filtro en modo simulación): NTP (UDP 123), DHCPv6 (UDP 547, capa V6) y red local (4 rangos privados IPv4 con dirección+máscara, `FWP_V4_ADDR_MASK`). `Initialize(bool failClosed, bool allowLocalNetwork)` (overload; el viejo de 1 arg sigue). `SetAllowLocalNetwork(bool)` en vivo. Claves fijas nuevas agregadas a `BaseFilterKeys` (se limpian en Rollback/HardReset).
+- `Dns/DnsConfigurator.cs`: `FlushDnsCache()` (`ipconfig /flushdns`).
+- `CaptivePortal/CaptivePortalManager.cs` (**NUEVO**): modo portal cautivo (abre solo gateway + DNS **locales** por N min con la regla por-IP existente, suspende NRPT, autovence con timer y re-aplica NRPT).
+- `Config/ConfigManager.cs`: `AllowLocalNetwork` + `SetAllowLocalNetwork()` (persiste y dispara `ConfigChanged`).
+- `Worker.cs`: pasa `AllowLocalNetwork` a `Initialize`; se suscribe a `ConfigChanged` para aplicar red local en vivo y **vaciar la caché DNS** en cada cambio.
+- `Ipc/NamedPipeServer.cs`: inyecta `CaptivePortalManager` (opcional, **9º parámetro, después de `pipeName`** para no romper las llamadas posicionales de los tests); comandos `SetAllowLocalNetwork`, `StartCaptivePortal`, `EndCaptivePortal` (todos exigen tutor); nuevos campos en `GetStatus`.
+- `Program.cs`: `Version = "0.5.0"`; DI de `CaptivePortalManager`.
+
+**UI:** `MainViewModel.cs` (`IsDnsDown`, `AllowLocalNetwork`, `CaptivePortalActive`/`BannerText` + métodos); `MainWindow.xaml` (cartel DNS caído, cartel portal cautivo, toggle red local y tarjeta portal cautivo en Configuración); `MainWindow.xaml.cs` (handlers `ChkAllowLocalNetwork_Click`, `BtnCaptivePortal_Click`, `BtnCaptivePortalEnd_Click`).
+
+**Instalador:** `LockSuiteSetup.iss`: `MyAppVersion 0.5.0`; `[Registry]` que **desactiva DoH** en Chrome/Edge (`DnsOverHttpsMode=off`) y Firefox (`DNSOverHTTPS\Enabled=0`,`Locked=1`), con `uninsdeletevalue`.
+
+**Tests (nuevos/ajustados):** `tests/LockSuite.Core.Tests/PresetsExtraTests.cs` (NUEVO: CAs/OCSP, web-commons, captcha, windows-update, browser-updates, heurística OCSP/CRL, `AllowLocalNetwork` round-trip, nada de esto abre bloqueados); `tests/LockSuite.Service.Tests/ConfigManagerTests.cs` (+`SetAllowLocalNetwork_TogglesAndPersists`, +`ConfigChanged_FiresOnAddDomain`).
+
+**Docs:** `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` reescrito (cada punto dice cómo se corrigió + sección 4 "Problemas de certificados" + matriz nueva); este HANDOFF; `ESTADO.md`.
+
+## 1. Build + tests (usuario estándar, sin elevación → WFP en simulación)
+
+```powershell
+cd "C:\Locksuite windows"
+dotnet build LockSuite.sln -c Release
+dotnet test  LockSuite.sln -c Release
+```
+Esperado: los 372 previos **más** los nuevos de `PresetsExtraTests` y `ConfigManagerTests`. **Posibles focos de error de compilación de esta sesión** (revisar primero si falla):
+- `NamedPipeServer`: el parámetro `captivePortal` quedó **después** de `pipeName`; verificar que los tests que construyen el server posicionalmente sigan compilando.
+- `WfpManager`: marshalling de `FWP_V4_ADDR_AND_MASK` (permiso de red local) y los permisos NTP/DHCPv6.
+- `Worker`: firma del handler `OnConfigChanged(LockSuite.Core.WhitelistConfig)` contra el evento `Action<WhitelistConfig>`.
+
+## 2. Publicar + empaquetar v0.5.0
+
+```powershell
+.\scripts\publish-release.ps1 -Version "0.5.0" -Notes "Certificados (OCSP/CRL de CAs, raices de Windows, navegadores), DoH off, Windows Update/Defender, portal cautivo, red local, flush DNS, NTP y DHCPv6"
+```
+
+## 3. Validación en VM de Windows 11
+
+### 3.1 Certificados (lo nuevo más importante)
+- Con todos los paquetes por defecto, navegar sitios HTTPS variados (uno detrás de **Cloudflare**, uno en **AWS/CloudFront**, uno con cert **Let's Encrypt**, uno **.gov/banco** local) → **ninguno** debe dar "La conexión no es privada". Si alguno falla, mirar "Bloqueados recientes": si aparece un host `ocsp*`/`crl*`, debe tener **nota** y permitirse con 1 clic (y conviene sumarlo a `Presets.cs`).
+- `whitelist.json` tras actualizar desde v0.4.1: deben aparecer los paquetes `windows-update`, `browser-updates`, `web-commons`, `captcha`, `"version": 2`, y los presets viejos intactos.
+
+### 3.2 DoH (directivas del instalador)
+- Tras instalar: en Chrome `chrome://policy` debe mostrar `DnsOverHttpsMode = off`; en Edge `edge://policy` igual; en Firefox `about:policies` → DNSOverHTTPS Enabled=false/Locked. Navegar un sitio permitido con "DNS seguro" que antes fallaba → ahora abre. Desinstalar → las claves se quitan.
+
+### 3.3 Portal cautivo (requiere una red con portal, o simularla)
+- Config → "Abrir modo portal cautivo (5 min)" (pide tutor). Debe aparecer el banner con cuenta regresiva en "Estado". En una red de hotel/cafetería: debe poder abrirse la página del portal y autenticarse. Un sitio **de internet no permitido** (p. ej. `www.youtube.com`) debe **seguir bloqueado** durante la ventana. Al vencer (o con "Terminar ahora"), el DNS vuelve a 127.0.0.1 (verificar `Get-DnsClientNrptRule`).
+
+### 3.4 Red local
+- Con "Permitir red local" **desactivado**: entrar a `http://192.168.x.x` (router) debe fallar. Activarlo (pide tutor) → debe abrir **sin reiniciar el servicio**; imprimir en impresora de red / ver NAS. Un sitio de internet no permitido sigue bloqueado. Desactivarlo → vuelve a bloquear la red local.
+
+### 3.5 Caché DNS / Windows Update / IPv6
+- Permitir un dominio que estaba bloqueado → debe abrir **enseguida** (sin esperar minutos). Confirmar en el Visor de eventos "Caché DNS del sistema vaciada".
+- `Configuración de Windows → Windows Update → Buscar actualizaciones` debe funcionar; Seguridad de Windows → actualizar firmas de Defender debe funcionar.
+- Si la VM tiene IPv6: confirmar que obtiene dirección por DHCPv6 y navega.
+
+### 3.6 Cartel DNS caído (puerto 53)
+- Ocupar el 53 (p. ej. iniciar un DNS local / WSL) y reiniciar el servicio → la GUI debe mostrar el **cartel ámbar** "El resolutor DNS local no está escuchando…" y **no** debe cortarse internet por NRPT.
+
+## 4. Al terminar
+1. Hosts que hayan faltado (sitios rotos, certificados): anotarlos y sumarlos a `Presets.cs` (la actualización los propaga vía `PresetSync`).
+2. Actualizar `ESTADO.md` (resultados reales, nueva línea de log, próximo paso) y `git commit`, p. ej.:
+   `feat(v0.5.0): problemas de certificado (OCSP/CRL/raices/navegadores), DoH off, Windows Update/Defender, portal cautivo, red local, flush DNS, NTP+DHCPv6`

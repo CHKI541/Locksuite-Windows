@@ -169,6 +169,24 @@ public sealed class ConfigManager
         ConfigChanged?.Invoke(CurrentConfig);
     }
 
+    /// <summary>Estado actual del permiso de red local (direcciones privadas).</summary>
+    public bool AllowLocalNetwork
+    {
+        get { lock (_lock) { return _currentConfig.AllowLocalNetwork; } }
+    }
+
+    /// <summary>Permite o bloquea la red local (impresoras, router, NAS). Internet sigue filtrado igual.</summary>
+    public void SetAllowLocalNetwork(bool enabled)
+    {
+        lock (_lock)
+        {
+            _currentConfig.AllowLocalNetwork = enabled;
+            SaveToDisk(_currentConfig);
+        }
+        _logger.LogInformation("Permiso de red local {Status}", enabled ? "activado" : "desactivado");
+        ConfigChanged?.Invoke(CurrentConfig);
+    }
+
     /// <summary>
     /// Agrega un dominio a un paquete (por defecto "Personalizados").
     ///   - Si el dominio es de un paquete de fabrica y el tutor lo habia quitado, se restituye ahi.

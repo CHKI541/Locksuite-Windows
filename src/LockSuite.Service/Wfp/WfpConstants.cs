@@ -49,6 +49,7 @@ public static class WfpConstants
     public const byte IPPROTO_UDP = 17;
 
     // Puertos conocidos
+    public const ushort PORT_NTP = 123;          // sincronizacion de hora
     public const ushort PORT_DNS = 53;
     public const ushort PORT_DHCP_SERVER = 67;
     public const ushort PORT_DHCP_CLIENT = 68;

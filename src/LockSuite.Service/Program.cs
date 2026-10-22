@@ -21,7 +21,7 @@ public static class Program
 {
     public const string ServiceName = "LockSuiteService";
     public const string DisplayName = "LockSuite Filtering Service";
-    public const string Version = "0.4.1";
+    public const string Version = "0.5.0";
 
     public static int Main(string[] args)
     {
@@ -123,6 +123,7 @@ public static class Program
                 services.AddSingleton<NamedPipeServer>();
                 services.AddSingleton<UpdateManager>();
                 services.AddSingleton<TrialManager>();
+                services.AddSingleton<LockSuite.Service.CaptivePortal.CaptivePortalManager>();
 
                 services.AddHostedService(sp => new Worker(
                     sp.GetRequiredService<ILogger<Worker>>(),

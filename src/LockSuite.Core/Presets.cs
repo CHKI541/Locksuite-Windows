@@ -91,6 +91,10 @@ public static class Presets
     public const string IdProg = "prog";
     public const string IdMitmachim = "mitmachim";
     public const string IdMercadoPago = "mercadopago";
+    public const string IdWindowsUpdate = "windows-update";
+    public const string IdWebCommons = "web-commons";
+    public const string IdCaptcha = "captcha";
+    public const string IdBrowserUpdates = "browser-updates";
 
     /// <summary>Paquete por defecto para los dominios que agrega el tutor.</summary>
     public const string CustomPackName = "Personalizados";
@@ -103,16 +107,144 @@ public static class Presets
     {
         "time.windows.com",       // sincronizacion de hora
         "ntp.org",                // hora (fallback), cubre pool.ntp.org etc.
-        "msftconnecttest.com",    // deteccion de conectividad de Windows
-        "msftncsi.com",
-        "digicert.com",           // OCSP/CRL (validacion de certificados)
+        "msftconnecttest.com",    // deteccion de conectividad de Windows (cubre www.msftconnecttest.com)
+        "msftncsi.com",           // deteccion de conectividad (cubre www.msftncsi.com, dns.msftncsi.com)
+        // --- Validacion de certificados (OCSP / CRL / AIA de las CAs mas usadas) ---
+        // Son hosts de PKI (estado de certificados y certificados intermedios), no contenido
+        // navegable. Sin esto, los sitios HTTPS de esas CAs validan lento o fallan (sesion 11).
+        "digicert.com",           // ocsp.digicert.com, crl3./crl4.digicert.com, cacerts.digicert.com
         "verisign.com",
-        "globalsign.com",
+        "globalsign.com",         // ocsp.globalsign.com, crl.globalsign.com
         "letsencrypt.org",
-        "pki.goog",               // OCSP/CRL de Google (ocsp.pki.goog, crl.pki.goog, c.pki.goog)
+        "lencr.org",              // OCSP/CRL/intermedios de Let's Encrypt (o.lencr.org, c.lencr.org, x1.c.lencr.org) — la CA mas usada de la web
+        "amazontrust.com",        // OCSP/CRL de Amazon (certificados de sitios en AWS/CloudFront): ocsp.rootca1.amazontrust.com, crl.*
+        "sectigo.com",            // ocsp.sectigo.com, crl.sectigo.com, crt.sectigo.com
+        "usertrust.com",          // raiz USERTrust (familia Sectigo/Comodo)
+        "comodoca.com",           // ocsp.comodoca.com, crl.comodoca.com, crt.comodoca.com
+        "identrust.com",          // IdenTrust (cadena historica de Let's Encrypt)
+        "entrust.net",            // ocsp.entrust.net, crl.entrust.net
+        "geotrust.com",           // marcas viejas de DigiCert (status.geotrust.com, ...)
+        "thawte.com",
+        "rapidssl.com",
+        "quovadisglobal.com",     // QuoVadis (DigiCert, comun en Europa): ocsp./crl.quovadisglobal.com
+        "ocsp.godaddy.com",       // GoDaddy: solo los hosts de PKI (no la tienda)
+        "crl.godaddy.com",
+        "certificates.godaddy.com",
+        "ocsp.starfieldtech.com", // Starfield (GoDaddy)
+        "crl.starfieldtech.com",
+        "certificates.starfieldtech.com",
+        "ssl.com",                // SSL.com: una de las 3 CAs de los certificados de Cloudflare (ocsps., crls., cert.ssl.com)
+        "certum.pl",              // Certum: firma cruzada de la cadena de SSL.com (Cloudflare)
+        "ocsp-certum.com",        // OCSP de Certum (subca.ocsp-certum.com, ...)
+        "msocsp.com",             // PKI de Microsoft (ocsp.msocsp.com)
+        "oneocsp.microsoft.com",  // OCSP de Microsoft (sitios en Azure con certificados de Microsoft)
+        "crl.microsoft.com",      // CRL de Microsoft
+        "mscrl.microsoft.com",    // CRL de Microsoft
+        "ctldl.windowsupdate.com",// Actualizacion automatica de certificados RAIZ de Windows: sin esto, Edge y los
+                                  // programas que usan el almacen de Windows muestran "La conexion no es privada"
+                                  // con sitios cuya raiz todavia no se descargo (p. ej. raices nuevas de Cloudflare/SSL.com).
+        "pki.goog",               // Google Trust Services (otra CA de Cloudflare): ocsp.pki.goog, crl.pki.goog, c.pki.goog, i.pki.goog
         "api.github.com",         // Actualizaciones automaticas de LockSuite (metadata del release)
         "github.com",             // Pagina del release / redireccion de descarga
         "githubusercontent.com"   // Descarga del instalador: cubre objects./raw./release-assets. (todos los subdominios)
+    };
+
+    /// <summary>
+    /// Recursos de terceros que usan muchísimos sitios para verse bien: fuentes y CDNs de librerías
+    /// (jQuery, Bootstrap, Font Awesome, cdnjs). Evita el caso 2.1 (páginas "rotas" sin estilo).
+    /// A propósito NO se incluyen CDNs que sirven archivos arbitrarios de npm/GitHub
+    /// (jsdelivr, unpkg): si un sitio puntual los necesita, el tutor los agrega desde
+    /// "Bloqueados recientes". Ninguno de estos sirve contenido navegable por sí solo.
+    /// </summary>
+    private static readonly string[] WebCommonsDomains =
+    {
+        // Fuentes
+        "fonts.googleapis.com",
+        "fonts.gstatic.com",
+        // CDNs de librerías (curadas, no suben contenido de usuario arbitrario)
+        "cdnjs.cloudflare.com",
+        "ajax.googleapis.com",        // jQuery alojado por Google
+        "code.jquery.com",
+        "stackpath.bootstrapcdn.com",
+        "maxcdn.bootstrapcdn.com",
+        "use.fontawesome.com",
+        "kit.fontawesome.com",
+        "ka-f.fontawesome.com",
+    };
+
+    /// <summary>
+    /// Verificación "no soy un robot" (captcha) de sitios permitidos: sin esto no se puede
+    /// iniciar sesión ni enviar formularios en muchos sitios (caso 2.3).
+    /// Nota: el reCAPTCHA clásico se sirve desde www.google.com, que está en el Bloqueo fijo
+    /// (el buscador): ese reCAPTCHA NO va a funcionar. Cloudflare Turnstile, hCaptcha y el
+    /// reCAPTCHA servido por recaptcha.net (dominio alternativo de Google) sí funcionan.
+    /// </summary>
+    private static readonly string[] CaptchaDomains =
+    {
+        "challenges.cloudflare.com",  // Cloudflare Turnstile
+        "hcaptcha.com",               // hCaptcha (cubre newassets., imgs., api.)
+        "recaptcha.net",              // reCAPTCHA por el dominio alternativo de Google
+    };
+
+    /// <summary>
+    /// Actualizaciones de seguridad de Windows y firmas de Microsoft Defender (sesion 11).
+    /// Sin esto, el equipo deja de recibir parches y el antivirus queda con firmas viejas
+    /// (falla silenciosa: no se ve ningun error). Lista tomada de la documentacion oficial de
+    /// Microsoft ("Configure and validate Microsoft Defender Antivirus network connections" y
+    /// "Windows Update troubleshooting"). Son hosts de descarga/servicio, no contenido navegable.
+    /// No incluye la Tienda de Microsoft, Bing, MSN ni Copilot (siguen bloqueados).
+    /// </summary>
+    private static readonly string[] WindowsUpdateDomains =
+    {
+        // Windows Update / Microsoft Update
+        "update.microsoft.com",             // *.update.microsoft.com (fe2., sls., ...)
+        "windowsupdate.microsoft.com",
+        "windowsupdate.com",                // *.windowsupdate.com, download.windowsupdate.com (puerto 80)
+        "delivery.mp.microsoft.com",        // *.delivery.mp.microsoft.com, *.dl.delivery.mp.microsoft.com, fe3cr.
+        "dsp.mp.microsoft.com",             // Optimizacion de distribucion y tsfe.trafficshaping.dsp.mp.microsoft.com
+        "emdl.ws.microsoft.com",
+        "download.microsoft.com",
+        // Microsoft Defender: firmas (security intelligence) y proteccion en la nube
+        "definitionupdates.microsoft.com",
+        "go.microsoft.com",                 // redireccionador usado por la descarga alternativa de firmas (puerto 80)
+        "wdcp.microsoft.com",               // proteccion en la nube (MAPS)
+        "wdcpalt.microsoft.com",
+        "wd.microsoft.com",                 // *.wd.microsoft.com
+        // SmartScreen (reputacion de programas descargados: sin esto Windows no puede verificarlos)
+        "smartscreen.microsoft.com",
+        "smartscreen-prod.microsoft.com",
+        "checkappexec.microsoft.com",
+        "urs.microsoft.com",
+    };
+
+    /// <summary>
+    /// Actualizaciones de los navegadores y de SUS listas de certificados (sesion 11):
+    ///   - Chrome actualiza su almacen de raices (Chrome Root Store) y su lista de revocados (CRLSet)
+    ///     con el actualizador de componentes; Edge baja sus listas de revocacion desde edge.microsoft.com;
+    ///     Firefox baja los certificados intermedios que le faltan a los sitios mal configurados
+    ///     ("intermediate preloading") y su lista de revocados (CRLite) desde Remote Settings.
+    ///   - Sin esto los navegadores quedan desactualizados (sin parches de seguridad) y, con el tiempo,
+    ///     aparecen errores de certificado (raices nuevas que no conocen, SEC_ERROR_UNKNOWN_ISSUER en Firefox).
+    /// Fuentes: "Allow list for Microsoft Edge endpoints" (Microsoft), ayuda de Chrome Enterprise (Google),
+    /// blog de seguridad de Mozilla (intermediate preloading). No incluye tiendas de extensiones ni sitios.
+    /// </summary>
+    private static readonly string[] BrowserUpdateDomains =
+    {
+        // Microsoft Edge (las descargas van por *.dl.delivery.mp.microsoft.com: paquete de Windows Update)
+        "msedge.api.cdp.microsoft.com",     // servicio de actualizacion de Edge
+        "edge.microsoft.com",               // componentes de Edge: listas de revocacion, proteccion de rastreo
+        // Google Chrome
+        "tools.google.com",                 // Omaha: configuracion de actualizacion
+        "update.googleapis.com",            // actualizador de Chrome y de sus componentes (Root Store, CRLSet)
+        "dl.google.com",                    // descargas de Chrome
+        "edgedl.me.gvt1.com",               // descargas de Chrome y componentes
+        // Mozilla Firefox
+        "firefox.settings.services.mozilla.com",       // Remote Settings: intermedios, CRLite, revocaciones
+        "firefox-settings-attachments.cdn.mozilla.net", // adjuntos de Remote Settings (certificados intermedios)
+        "content-signature-2.cdn.mozilla.net",          // firmas de Remote Settings
+        "aus5.mozilla.org",                             // chequeo de actualizaciones
+        "download.mozilla.org",                         // descarga de actualizaciones (redirige al CDN)
+        "download-installer.cdn.mozilla.net",
     };
 
     /// <summary>
@@ -334,6 +466,28 @@ public static class Presets
         },
         new PresetDefinition
         {
+            Id = IdWindowsUpdate,
+            Name = "Actualizaciones de Windows y Defender",
+            Domains = WindowsUpdateDomains,
+            EnabledByDefault = true,
+            EnabledOnUpgrade = true,
+            Title = "Actualizaciones de Windows y Defender",
+            Icon = "🛡️",
+            Description = "Parches de seguridad de Windows, firmas del antivirus Microsoft Defender y SmartScreen. No incluye la Tienda, Bing, MSN ni Copilot."
+        },
+        new PresetDefinition
+        {
+            Id = IdBrowserUpdates,
+            Name = "Actualizaciones de navegadores y sus certificados",
+            Domains = BrowserUpdateDomains,
+            EnabledByDefault = true,
+            EnabledOnUpgrade = true,
+            Title = "Actualizaciones de navegadores",
+            Icon = "🔐",
+            Description = "Chrome, Edge y Firefox: parches de seguridad y sus listas de certificados (raíces, intermedios y revocados). Evita errores de certificado con el tiempo."
+        },
+        new PresetDefinition
+        {
             Id = IdGmail,
             Name = "Gmail",
             Domains = GmailDomains,
@@ -403,6 +557,28 @@ public static class Presets
             Description = "Foro Mitmachim Top, con sus fuentes hebreas.",
             Notice = "Crear una cuenta nueva usa reCAPTCHA de www.google.com (bloqueado): registrarse con «Ingresar con Google» o desde otro equipo. Entrar con una cuenta existente funciona.",
             OpenUrl = "https://mitmachim.top/"
+        },
+        new PresetDefinition
+        {
+            Id = IdWebCommons,
+            Name = "Recursos web comunes (fuentes y librerías)",
+            Domains = WebCommonsDomains,
+            EnabledByDefault = true,
+            EnabledOnUpgrade = true,
+            Title = "Recursos web comunes",
+            Icon = "🧩",
+            Description = "Fuentes y librerías que usan muchísimos sitios para verse bien (Google Fonts, cdnjs, jQuery, Bootstrap, Font Awesome). No sirven contenido por sí solos."
+        },
+        new PresetDefinition
+        {
+            Id = IdCaptcha,
+            Name = "Verificación «no soy un robot»",
+            Domains = CaptchaDomains,
+            EnabledByDefault = true,
+            EnabledOnUpgrade = true,
+            Title = "Verificación «no soy un robot»",
+            Icon = "✅",
+            Description = "Cloudflare Turnstile, hCaptcha y reCAPTCHA (por recaptcha.net), para poder iniciar sesión o enviar formularios en sitios permitidos. El reCAPTCHA servido desde www.google.com sigue bloqueado (es el buscador)."
         },
         new PresetDefinition
         {
@@ -486,6 +662,24 @@ public static class Presets
         ("facebook.com", "Facebook: no hace falta."),
         ("cloudflareinsights.com", "Estadísticas: no hace falta."),
         ("weather2day.co.il", "Widget del clima de prog.co.il: opcional, no incluido."),
+        // Validacion de certificados (sesion 11): los hosts de PKI de las CAs grandes ya vienen en
+        // "Esenciales del sistema". Estos avisan de los que quedan afuera a proposito.
+        ("www.microsoft.com", "Sitio de Microsoft. Solo hace falta si un programa o un sitio alojado en Azure falla por certificado (usa www.microsoft.com/pkiops)."),
+        // CDNs que sirven archivos de cualquiera
+        ("cdn.jsdelivr.net", "CDN que sirve archivos de cualquiera (npm/GitHub): permitir solo si un sitio permitido no funciona sin esto."),
+        ("unpkg.com", "CDN que sirve archivos de cualquiera (npm): permitir solo si un sitio permitido no funciona sin esto."),
+        // DNS seguro de los navegadores (LockSuite lo desactiva por directiva)
+        ("cloudflare-dns.com", "«DNS seguro» del navegador (Cloudflare): no hace falta, LockSuite resuelve los nombres. No permitir."),
+        ("dns.google", "«DNS seguro» del navegador (Google): no hace falta, LockSuite resuelve los nombres. No permitir."),
+        ("use-application-dns.net", "Prueba de Firefox para su «DNS seguro»: que quede bloqueada hace que Firefox use el DNS de LockSuite. No permitir."),
+        // Microsoft: lo que Windows intenta en segundo plano y no hace falta
+        ("bing.com", "Bing (buscador de Microsoft): bloqueado a propósito."),
+        ("msn.com", "MSN (noticias de los Widgets de Windows): bloqueado a propósito."),
+        ("copilot.microsoft.com", "Copilot (IA de Microsoft): bloqueado a propósito."),
+        ("events.data.microsoft.com", "Telemetría de Windows: no hace falta."),
+        ("storeedgefd.dsx.mp.microsoft.com", "Tienda de Microsoft: no incluida."),
+        ("displaycatalog.mp.microsoft.com", "Tienda de Microsoft: no incluida."),
+        ("login.live.com", "Cuenta Microsoft (OneDrive, Outlook.com, inicio de sesión de Windows): permitir solo si se usa una cuenta Microsoft."),
     };
 
     // ------------------------------------------------------------------------------------
@@ -551,7 +745,33 @@ public static class Presets
             return "Bloqueo fijo (buscador de Google o Gemini): queda bloqueado aunque se permitan Gmail, Drive, Chat o Fotos.";
         foreach (var (pattern, note) in BlockedNotes)
             if (DomainMatcher.PatternMatches(pattern, host)) return note;
+        if (LooksLikeCertificateInfrastructure(host))
+            return "Parece un servidor de validación de certificados (OCSP/CRL) de una autoridad certificante: no es contenido. " +
+                   "Conviene permitirlo si un sitio permitido muestra «La conexión no es privada».";
         return null;
+    }
+
+    /// <summary>
+    /// Heuristica para "Bloqueados recientes": hosts cuya primera etiqueta indica infraestructura de
+    /// certificados (ocsp, ocsp2, crl, crl3, ...). Las CAs grandes ya vienen en "Esenciales del sistema";
+    /// esto ayuda al tutor a reconocer las de CAs chicas o locales (p. ej. de un sitio del gobierno).
+    /// </summary>
+    public static bool LooksLikeCertificateInfrastructure(string? host)
+    {
+        var h = DomainMatcher.Normalize(host);
+        int dot = h.IndexOf('.');
+        if (dot <= 0 || h.IndexOf('.', dot + 1) < 0) return false;   // al menos tres etiquetas: ocsp.ca.com
+        var first = h.AsSpan(0, dot);
+        return StartsWithThenDigits(first, "ocsp") || StartsWithThenDigits(first, "crl");
+    }
+
+    // "ocsp", "ocsp2", "crl", "crl3"... pero no "crlx" ni "ocspfoo".
+    private static bool StartsWithThenDigits(ReadOnlySpan<char> label, string prefix)
+    {
+        if (!label.StartsWith(prefix.AsSpan(), StringComparison.Ordinal)) return false;
+        foreach (char c in label[prefix.Length..])
+            if (c < '0' || c > '9') return false;
+        return true;
     }
 
     // Une listas sin repetir y respetando el orden.

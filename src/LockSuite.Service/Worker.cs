@@ -53,8 +53,12 @@ public sealed class Worker : BackgroundService
         _logger.LogInformation("=================================================");
 
         // 1. Inicializar WFP (default-deny). No lanza: ante error pasa a simulación.
-        bool failClosed = _configManager.CurrentConfig.FailClosed;
-        _wfpManager.Initialize(failClosed);
+        var cfg = _configManager.CurrentConfig;
+        _wfpManager.Initialize(cfg.FailClosed, cfg.AllowLocalNetwork);
+
+        // Al cambiar la config: aplicar en vivo el permiso de red local y vaciar la caché DNS
+        // (para que un dominio recién permitido abra enseguida, sin arrastrar el NXDOMAIN cacheado).
+        _configManager.ConfigChanged += OnConfigChanged;
 
         // 2. Iniciar resolutor DNS local (127.0.0.1:53). No lanza: si no puede enlazar,
         //    queda IsListening=false y el servicio sigue en pie (la red sigue bloqueada).
@@ -95,6 +99,13 @@ public sealed class Worker : BackgroundService
         return base.StartAsync(cancellationToken);
     }
 
+    private void OnConfigChanged(LockSuite.Core.WhitelistConfig cfg)
+    {
+        try { _wfpManager.SetAllowLocalNetwork(cfg.AllowLocalNetwork); } catch (Exception ex) { _logger.LogWarning(ex, "No se pudo aplicar el permiso de red local."); }
+        // Un cambio de lista casi siempre permite algo nuevo: vaciar la caché DNS para que abra ya.
+        _dnsConfigurator.FlushDnsCache();
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("LockSuite Windows Service está en ejecución y filtrando.");
@@ -126,6 +137,8 @@ public sealed class Worker : BackgroundService
     public override Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Deteniendo LockSuite Windows Service (parada ordenada)...");
+
+        _configManager.ConfigChanged -= OnConfigChanged;
 
         // 1. Detener IPC
         _pipeServer.Stop();

@@ -54,6 +54,38 @@ public sealed class DnsConfigurator
         return false;
     }
 
+    /// <summary>
+    /// Vacía la caché DNS del sistema (ipconfig /flushdns). Se llama cuando el tutor permite un
+    /// dominio nuevo: Windows cachea las respuestas NXDOMAIN (negativas) de los dominios bloqueados,
+    /// así que sin esto el dominio recién permitido podía seguir sin abrir unos minutos (caso 3.7).
+    /// </summary>
+    public void FlushDnsCache()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "ipconfig.exe",
+                Arguments = "/flushdns",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            using var p = Process.Start(psi);
+            if (p == null) return;
+            if (!p.WaitForExit(5000)) { try { p.Kill(true); } catch { } return; }
+            _ = p.StandardOutput.ReadToEnd();
+            _ = p.StandardError.ReadToEnd();
+            _logger.LogInformation("Caché DNS del sistema vaciada (flushdns).");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudo vaciar la caché DNS.");
+        }
+    }
+
     /// <summary>Remueve la regla NRPT de LockSuite si fue aplicada.</summary>
     public void RemoveNrptRedirect()
     {

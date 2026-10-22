@@ -170,6 +170,25 @@ public sealed class LockSuiteClient
         return resp.Success;
     }
 
+    public async Task<bool> SetAllowLocalNetworkAsync(bool enabled, string sessionToken)
+    {
+        var resp = await SendCommandAsync("SetAllowLocalNetwork", payload: enabled ? "true" : "false", sessionToken: sessionToken);
+        return resp.Success;
+    }
+
+    /// <summary>Abre el modo portal cautivo por unos minutos (requiere tutor). Devuelve el error si falló.</summary>
+    public async Task<(bool Success, string? Error)> StartCaptivePortalAsync(int minutes, string sessionToken)
+    {
+        var resp = await SendCommandAsync("StartCaptivePortal", payload: minutes.ToString(), sessionToken: sessionToken);
+        return (resp.Success, resp.ErrorMessage);
+    }
+
+    public async Task<bool> EndCaptivePortalAsync(string sessionToken)
+    {
+        var resp = await SendCommandAsync("EndCaptivePortal", sessionToken: sessionToken);
+        return resp.Success;
+    }
+
     // ----------------- Modo de prueba (trial) -----------------
 
     public async Task<TrialStatusDto?> GetTrialStatusAsync()

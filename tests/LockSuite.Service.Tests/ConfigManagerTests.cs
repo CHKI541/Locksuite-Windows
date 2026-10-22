@@ -229,4 +229,28 @@ public class ConfigManagerTests : IDisposable
         manager.AddDomain("nuevo-dominio-unico-test.com");
         Assert.Equal(before + 1, manager.ActivePatternCount);
     }
+
+    [Fact]
+    public void SetAllowLocalNetwork_TogglesAndPersists()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        Assert.False(manager.AllowLocalNetwork);   // por defecto la red local está bloqueada
+
+        manager.SetAllowLocalNetwork(true);
+        Assert.True(manager.AllowLocalNetwork);
+
+        var reload = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        Assert.True(reload.AllowLocalNetwork);
+    }
+
+    [Fact]
+    public void ConfigChanged_FiresOnAddDomain()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        int fired = 0;
+        manager.ConfigChanged += _ => fired++;
+
+        manager.AddDomain("evento-test.com");
+        Assert.True(fired >= 1);
+    }
 }

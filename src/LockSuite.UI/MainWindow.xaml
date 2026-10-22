@@ -169,6 +169,32 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Aviso: el resolutor DNS local no está escuchando (p. ej. puerto 53 ocupado) -->
+                        <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14"
+                                Visibility="{Binding IsDnsDown, Converter={StaticResource BoolToVis}}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#x26A0;" FontSize="18" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                <TextBlock TextWrapping="Wrap" Foreground="#92400E" VerticalAlignment="Center"
+                                           Text="El resolutor DNS local no está escuchando (otra aplicación está usando el puerto 53: Docker, WSL, un VPN...). El filtrado por dominio no funciona y los sitios permitidos pueden no abrir. Cerrá ese programa o reiniciá el equipo; la red sigue bloqueada mientras tanto."/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Aviso: modo portal cautivo activo -->
+                        <Border Background="#DBEAFE" BorderBrush="#3B82F6" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,14"
+                                Visibility="{Binding CaptivePortalActive, Converter={StaticResource BoolToVis}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" TextWrapping="Wrap" Foreground="#1E3A8A" VerticalAlignment="Center"
+                                           Text="{Binding CaptivePortalBannerText}"/>
+                                <Button Grid.Column="1" Content="Terminar ahora" Height="28" Padding="12,0" Margin="8,0,0,0"
+                                        Background="#2563EB" Foreground="White" FontWeight="SemiBold"
+                                        BorderThickness="0" Cursor="Hand" Click="BtnCaptivePortalEnd_Click"/>
+                            </Grid>
+                        </Border>
+
                         <!-- Hero Banner -->
                         <Border Background="#1E40AF" CornerRadius="10" Padding="20" Margin="0,0,0,20">
                             <Grid>
@@ -543,9 +569,26 @@
                                 <CheckBox IsChecked="{Binding FailClosed}" Content="Modo Fail-Closed (Mantener red bloqueada si el servicio no corre)" 
                                           Margin="0,12,0,8" Cursor="Hand" IsEnabled="False"
                                           ToolTip="Siempre activo por seguridad: si el servicio deja de ejecutarse de forma inesperada, la red permanece bloqueada hasta reiniciar."/>
-                                <CheckBox IsChecked="{Binding LearningMode}" Content="Modo Aprendizaje (Registrar dominios no permitidos para su aprobación)" 
-                                          Margin="0,0,0,4" Cursor="Hand" Click="ChkLearningMode_Click"
+                                <CheckBox IsChecked="{Binding LearningMode}" Content="Modo Aprendizaje (Registrar dominios no permitidos para su aprobación)"
+                                          Margin="0,0,0,8" Cursor="Hand" Click="ChkLearningMode_Click"
                                           ToolTip="Requiere autenticación del tutor para cambiarlo."/>
+                                <CheckBox IsChecked="{Binding AllowLocalNetwork}" Content="Permitir la red local (impresoras, router, equipos de la casa)"
+                                          Margin="0,0,0,4" Cursor="Hand" Click="ChkAllowLocalNetwork_Click"
+                                          ToolTip="Abre solo direcciones privadas (192.168.x, 10.x, etc.). Internet sigue filtrado igual. Requiere autenticación del tutor."/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Card: Wi-Fi de hotel / portal cautivo -->
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,16"
+                                BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Wi-Fi de hotel / portal cautivo" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Text="Si al conectarte a una red Wi-Fi (hotel, café, aeropuerto) no aparece la página para aceptar los términos o poner la clave, abrí una ventana corta para poder autenticarte. Se abre solo la red local (no internet) y el filtro vuelve solo al terminar. Requiere la contraseña del tutor."
+                                           FontSize="12" Foreground="#64748B" Margin="0,4,0,12" TextWrapping="Wrap"/>
+                                <Button Content="Abrir modo portal cautivo (5 min)" Width="260" Height="32"
+                                        HorizontalAlignment="Left" Background="#2563EB" Foreground="White"
+                                        FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
+                                        Click="BtnCaptivePortal_Click"/>
                             </StackPanel>
                         </Border>
 

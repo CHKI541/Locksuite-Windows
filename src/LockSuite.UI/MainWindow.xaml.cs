@@ -338,6 +338,56 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ChkAllowLocalNetwork_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox chk)
+        {
+            if (!await EnsureAuthenticatedAsync())
+            {
+                chk.IsChecked = !chk.IsChecked;
+                return;
+            }
+            bool desired = chk.IsChecked == true;
+            bool ok = await ViewModel.SetAllowLocalNetworkAsync(desired);
+            if (!ok)
+            {
+                chk.IsChecked = !chk.IsChecked;
+                MessageBox.Show(this, "No se pudo cambiar el permiso de red local.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    // ----------------- Wi-Fi de hotel / portal cautivo -----------------
+
+    private async void BtnCaptivePortal_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await EnsureAuthenticatedAsync()) return;
+
+        var confirm = MessageBox.Show(this,
+            "Se abrirá una ventana de 5 minutos para que puedas entrar a la página de la red Wi-Fi (la de aceptar términos o poner la clave).\n\n" +
+            "Durante esa ventana se abre solo la red local, no internet: los sitios bloqueados siguen bloqueados. Al terminar, el filtro vuelve solo.\n\n¿Continuar?",
+            "Modo portal cautivo", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var (ok, err) = await ViewModel.StartCaptivePortalAsync(5);
+        if (ok)
+        {
+            MessageBox.Show(this,
+                "Listo. Abrí el navegador: debería aparecer la página de la red Wi-Fi. Si no aparece sola, entrá a cualquier dirección y la red te va a redirigir.",
+                "Modo portal cautivo activo", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show(this, err ?? "No se pudo abrir el modo portal cautivo.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void BtnCaptivePortalEnd_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await EnsureAuthenticatedAsync()) return;
+        await ViewModel.EndCaptivePortalAsync();
+    }
+
     // ----------------- Modo de prueba (trial) -----------------
 
     private void OnTrialAwaiting()

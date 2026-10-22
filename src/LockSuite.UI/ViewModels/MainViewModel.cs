@@ -19,6 +19,9 @@ public sealed class MainViewModel : ViewModelBase
     private bool _isDnsListening;
     private bool _failClosed = true;
     private bool _learningMode = true;
+    private bool _allowLocalNetwork;
+    private bool _captivePortalActive;
+    private string _captivePortalBannerText = "";
     private bool _isPasswordConfigured;
     private int _activeDynamicRulesCount;
     private long _totalQueries;
@@ -44,7 +47,11 @@ public sealed class MainViewModel : ViewModelBase
     public bool IsConnected
     {
         get => _isConnected;
-        set => SetProperty(ref _isConnected, value);
+        set
+        {
+            if (SetProperty(ref _isConnected, value))
+                OnPropertyChanged(nameof(IsDnsDown));
+        }
     }
 
     public bool IsWfpActive
@@ -62,7 +69,36 @@ public sealed class MainViewModel : ViewModelBase
     public bool IsDnsListening
     {
         get => _isDnsListening;
-        set => SetProperty(ref _isDnsListening, value);
+        set
+        {
+            if (SetProperty(ref _isDnsListening, value))
+                OnPropertyChanged(nameof(IsDnsDown));
+        }
+    }
+
+    /// <summary>
+    /// True cuando el servicio está conectado pero el resolutor DNS local NO está escuchando
+    /// (p. ej. el puerto 53 lo ocupa Docker/WSL/VPN). En ese estado el filtrado por dominio no
+    /// funciona y conviene avisarlo con un cartel, no solo con un renglón de detalle (caso 3.3).
+    /// </summary>
+    public bool IsDnsDown => _isConnected && !_isDnsListening;
+
+    public bool AllowLocalNetwork
+    {
+        get => _allowLocalNetwork;
+        set => SetProperty(ref _allowLocalNetwork, value);
+    }
+
+    public bool CaptivePortalActive
+    {
+        get => _captivePortalActive;
+        set => SetProperty(ref _captivePortalActive, value);
+    }
+
+    public string CaptivePortalBannerText
+    {
+        get => _captivePortalBannerText;
+        set => SetProperty(ref _captivePortalBannerText, value);
     }
 
     public bool FailClosed
@@ -203,6 +239,14 @@ public sealed class MainViewModel : ViewModelBase
                 AllowedQueries = status.AllowedQueries;
                 BlockedQueries = status.BlockedQueries;
                 WhitelistPatternsCount = status.WhitelistPatternsCount;
+                AllowLocalNetwork = status.AllowLocalNetwork;
+                CaptivePortalActive = status.CaptivePortalActive;
+                if (status.CaptivePortalActive)
+                {
+                    int s = status.CaptivePortalRemainingSeconds;
+                    CaptivePortalBannerText = $"Modo portal cautivo activo: quedan {s / 60} min {s % 60} s. " +
+                        "Podés abrir la página de la red Wi-Fi. Al terminar, el filtro vuelve solo.";
+                }
 
                 StatusMessage = IsWfpActive
                     ? (IsSimulationMode ? "Modo Simulación Activo (Sin Elevación)" : "Filtro WFP Activo — Navegación Protegida")
@@ -401,6 +445,30 @@ public sealed class MainViewModel : ViewModelBase
         {
             await RefreshDataAsync();
         }
+        return ok;
+    }
+
+    public async Task<bool> SetAllowLocalNetworkAsync(bool enabled)
+    {
+        if (string.IsNullOrEmpty(_sessionToken)) return false;
+        bool ok = await _client.SetAllowLocalNetworkAsync(enabled, _sessionToken);
+        if (ok) await RefreshDataAsync();
+        return ok;
+    }
+
+    public async Task<(bool Success, string? Error)> StartCaptivePortalAsync(int minutes)
+    {
+        if (string.IsNullOrEmpty(_sessionToken)) return (false, "Sesión no autenticada");
+        var r = await _client.StartCaptivePortalAsync(minutes, _sessionToken);
+        if (r.Success) await RefreshDataAsync();
+        return r;
+    }
+
+    public async Task<bool> EndCaptivePortalAsync()
+    {
+        if (string.IsNullOrEmpty(_sessionToken)) return false;
+        bool ok = await _client.EndCaptivePortalAsync(_sessionToken);
+        if (ok) await RefreshDataAsync();
         return ok;
     }
 

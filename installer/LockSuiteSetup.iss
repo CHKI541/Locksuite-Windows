@@ -7,7 +7,7 @@
 ; Luego compilar este script con ISCC.
 
 #define MyAppName "LockSuite Windows"
-#define MyAppVersion "0.4.1"
+#define MyAppVersion "0.5.0"
 #define MyAppPublisher "LockSuite Community"
 #define MyAppURL "https://github.com/CHKI541/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"
@@ -63,6 +63,16 @@ Name: "{commonappdata}\LockSuite\updates"; Permissions: system-full admins-full
 Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker"; ValueType: string; ValueName: ""; ValueData: "Instalar en mi usuario (sin administrador)"; Flags: uninsdeletekey; Tasks: ctxinstalluser
 Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\ui\{#MyAppExeName}"; Tasks: ctxinstalluser
 Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker\command"; ValueType: string; ValueName: ""; ValueData: "cmd /c ""set __COMPAT_LAYER=RUNASINVOKER&& start """" ""%1"""""; Tasks: ctxinstalluser
+
+; --- Desactivar el "DNS seguro" (DoH) de los navegadores por directiva (caso 2.4) ---
+; Sin esto, Chrome/Edge/Firefox pueden resolver nombres por su cuenta (DNS-over-HTTPS) salteandose
+; el resolutor local de LockSuite: los sitios permitidos fallan con ERR_NAME_NOT_RESOLVED y el modo
+; aprendizaje no registra nada. Estas directivas fuerzan a usar el DNS de Windows (el de LockSuite).
+; Se quitan al desinstalar (uninsdeletevalue), dejando el navegador como estaba.
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome"; ValueType: string; ValueName: "DnsOverHttpsMode"; ValueData: "off"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: string; ValueName: "DnsOverHttpsMode"; ValueData: "off"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType: dword; ValueName: "Enabled"; ValueData: "0"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType: dword; ValueName: "Locked"; ValueData: "1"; Flags: uninsdeletevalue uninsdeletekeyifempty
 
 [Icons]
 Name: "{autoprograms}\LockSuite"; Filename: "{app}\ui\{#MyAppExeName}"

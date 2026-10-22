@@ -80,6 +80,15 @@ public sealed class ServiceStatusDto
 
     [JsonPropertyName("whitelistPatternsCount")]
     public int WhitelistPatternsCount { get; set; }
+
+    [JsonPropertyName("allowLocalNetwork")]
+    public bool AllowLocalNetwork { get; set; }
+
+    [JsonPropertyName("captivePortalActive")]
+    public bool CaptivePortalActive { get; set; }
+
+    [JsonPropertyName("captivePortalRemainingSeconds")]
+    public int CaptivePortalRemainingSeconds { get; set; }
 }
 
 public sealed class AuthRequestDto
