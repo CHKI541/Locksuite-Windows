@@ -79,6 +79,7 @@ public sealed class DnsResolver : IDisposable
             {
                 socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
                 socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                DisableUdpConnReset(socket);
                 socket.Bind(_listenEndpoint);
 
                 _listenerSocket = socket;
@@ -105,6 +106,26 @@ public sealed class DnsResolver : IDisposable
             "No se pudo iniciar el resolutor DNS local en {Endpoint}. " +
             "El filtrado por dominio no funcionara hasta resolver esto (¿puerto 53 ocupado por otro servicio DNS?). " +
             "La red permanece bloqueada por WFP (fail-closed).", _listenEndpoint);
+    }
+
+    /// <summary>
+    /// En Windows, si se le responde a un cliente UDP que ya cerro su puerto, llega un ICMP
+    /// "puerto inalcanzable" y el SIGUIENTE ReceiveFrom del socket de escucha falla con 10054
+    /// (WSAECONNRESET). Es inofensivo, pero ensuciaba el registro de eventos cada pocos segundos.
+    /// SIO_UDP_CONNRESET = false lo desactiva.
+    /// </summary>
+    private static void DisableUdpConnReset(Socket socket)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            const int SIO_UDP_CONNRESET = -1744830452;
+            socket.IOControl(SIO_UDP_CONNRESET, new byte[] { 0, 0, 0, 0 }, null);
+        }
+        catch
+        {
+            // best-effort: si falla, el bucle de escucha ya tolera el error.
+        }
     }
 
     public void Stop()
@@ -164,6 +185,8 @@ public sealed class DnsResolver : IDisposable
                 if (!token.IsCancellationRequested)
                 {
                     _logger.LogWarning(ex, "Error al recibir consulta DNS");
+                    // Evita un bucle caliente (CPU/bateria) si el error se repite sin parar.
+                    try { await Task.Delay(50, token); } catch (OperationCanceledException) { break; }
                 }
             }
         }

@@ -19,6 +19,14 @@ public sealed class LockSuiteClient
         _pipeName = pipeName ?? IpcConstants.PipeName;
     }
 
+    /// <summary>
+    /// UTF-8 SIN marca BOM para el canal IPC. Con <c>Encoding.UTF8</c> y <c>AutoFlush = true</c>,
+    /// el StreamWriter escribe el BOM (3 bytes) de forma SINCRONA apenas se crea; como el pipe no
+    /// tiene buffer, cliente y servidor quedaban bloqueados escribiendose el BOM el uno al otro
+    /// (deadlock: la ventana se congelaba y el servicio nunca respondia).
+    /// </summary>
+    public static readonly Encoding IpcEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
     public async Task<IpcResponse> SendCommandAsync(string command, string? payload = null, string? sessionToken = null, int timeoutMs = 3000)
     {
         try
@@ -26,10 +34,11 @@ public sealed class LockSuiteClient
             using var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             using var cts = new CancellationTokenSource(timeoutMs);
 
-            await pipe.ConnectAsync(cts.Token);
+            await pipe.ConnectAsync(cts.Token).ConfigureAwait(false);
 
-            using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
-            using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+            using var reader = new StreamReader(pipe, IpcEncoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+            // Sin AutoFlush: el vaciado es explicito y asincrono (FlushAsync) con timeout.
+            using var writer = new StreamWriter(pipe, IpcEncoding, bufferSize: 4096, leaveOpen: true);
 
             var req = new IpcRequest
             {
@@ -39,10 +48,10 @@ public sealed class LockSuiteClient
             };
 
             string reqJson = IpcRequest.Serialize(req);
-            await writer.WriteLineAsync(reqJson.AsMemory(), cts.Token);
-            await writer.FlushAsync(cts.Token);
+            await writer.WriteLineAsync(reqJson.AsMemory(), cts.Token).ConfigureAwait(false);
+            await writer.FlushAsync(cts.Token).ConfigureAwait(false);
 
-            string? resJson = await reader.ReadLineAsync(cts.Token);
+            string? resJson = await reader.ReadLineAsync(cts.Token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(resJson))
             {
                 return IpcResponse.Fail("Respuesta vacía del servicio");
@@ -51,7 +60,7 @@ public sealed class LockSuiteClient
             var resp = IpcResponse.Deserialize(resJson);
             return resp ?? IpcResponse.Fail("No se pudo deserializar la respuesta");
         }
-        catch (TimeoutException)
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
         {
             return IpcResponse.Fail("Tiempo de espera agotado al conectar con el servicio");
         }

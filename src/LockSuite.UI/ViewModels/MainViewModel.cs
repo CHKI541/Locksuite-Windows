@@ -179,8 +179,13 @@ public sealed class MainViewModel : ViewModelBase
         _ = RefreshDataAsync();
     }
 
+    // Evita refrescos superpuestos: el temporizador dispara cada 3 s y, si el servicio tarda en
+    // responder, antes se acumulaban consultas (y ventanas "colgadas") una encima de otra.
+    private int _refreshing;
+
     public async Task RefreshDataAsync()
     {
+        if (System.Threading.Interlocked.Exchange(ref _refreshing, 1) == 1) return;
         try
         {
             var status = await _client.GetStatusAsync();
@@ -205,8 +210,11 @@ public sealed class MainViewModel : ViewModelBase
             }
             else
             {
+                // Sin servicio: la ventana se muestra igual al instante. No se encadenan mas consultas
+                // (cada una esperaria otro timeout); se reintenta en el proximo ciclo del temporizador.
                 IsConnected = false;
                 StatusMessage = "Servicio LockSuite detenido o inaccesible";
+                return;
             }
 
             // Actualizar recientes
@@ -229,6 +237,10 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"Error al sincronizar: {ex.Message}";
+        }
+        finally
+        {
+            System.Threading.Interlocked.Exchange(ref _refreshing, 0);
         }
     }
 

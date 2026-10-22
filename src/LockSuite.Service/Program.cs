@@ -21,7 +21,7 @@ public static class Program
 {
     public const string ServiceName = "LockSuiteService";
     public const string DisplayName = "LockSuite Filtering Service";
-    public const string Version = "0.4.0";
+    public const string Version = "0.4.1";
 
     public static int Main(string[] args)
     {

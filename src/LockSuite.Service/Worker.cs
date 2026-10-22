@@ -60,11 +60,24 @@ public sealed class Worker : BackgroundService
         //    queda IsListening=false y el servicio sigue en pie (la red sigue bloqueada).
         _dnsResolver.Start();
 
-        // 3. Aplicar redirección DNS del sistema hacia 127.0.0.1
-        _dnsConfigurator.ApplyNrptRedirect();
-
-        // 4. Iniciar servidor IPC (Named Pipe para la GUI)
+        // 3. Iniciar servidor IPC (Named Pipe para la GUI) ANTES de tocar NRPT: aplicar la regla
+        //    llama a PowerShell y puede demorar varios segundos; asi la ventana puede conectarse
+        //    de inmediato en vez de esperar a que termine.
         _pipeServer.Start();
+
+        // 4. Aplicar redirección DNS del sistema hacia 127.0.0.1 SOLO si el resolutor local
+        //    realmente esta escuchando. Si el puerto 53 estaba ocupado (Docker, ICS, WSL...) y se
+        //    redirigiera igual, TODA la resolucion DNS del equipo quedaria apuntando a un puerto
+        //    muerto y la PC se quedaria sin internet. En ese caso se limpia cualquier regla vieja.
+        if (_dnsResolver.IsListening)
+        {
+            _dnsConfigurator.ApplyNrptRedirect();
+        }
+        else
+        {
+            _logger.LogError("El resolutor DNS local no esta escuchando: NO se redirige el DNS del sistema (se evita cortar el internet).");
+            _dnsConfigurator.RemoveNrptRedirect();
+        }
 
         // 5. Iniciar verificador de actualizaciones automáticas
         _updateManager.StartPeriodicChecks();

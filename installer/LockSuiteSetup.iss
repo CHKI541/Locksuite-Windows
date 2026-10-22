@@ -7,7 +7,7 @@
 ; Luego compilar este script con ISCC.
 
 #define MyAppName "LockSuite Windows"
-#define MyAppVersion "0.4.0"
+#define MyAppVersion "0.4.1"
 #define MyAppPublisher "LockSuite Community"
 #define MyAppURL "https://github.com/CHKI541/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"
@@ -25,6 +25,10 @@ DefaultDirName={autopf}\LockSuite
 DefaultGroupName=LockSuite
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
+; Los binarios son win-x64: instalar en modo 64 bits (C:\Program Files, registro nativo) en vez del
+; modo 32 bits por defecto de Inno (que los dejaba en "Program Files (x86)").
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\bin\installer
 OutputBaseFilename=LockSuiteSetup-{#MyAppVersion}
 Compression=lzma2/ultra64
@@ -67,7 +71,9 @@ Name: "{autodesktop}\LockSuite"; Filename: "{app}\ui\{#MyAppExeName}"; Tasks: de
 [Run]
 ; La instalacion/arranque del servicio, el set de contrasena y el modo de prueba se hacen en
 ; [Code] (ssPostInstall) para controlar el orden. Aqui solo se abre la interfaz al terminar.
-Filename: "{app}\ui\{#MyAppExeName}"; Description: "{cm:LaunchProgram,LockSuite}"; Flags: nowait postinstall skipifsilent
+; La interfaz se abre con el usuario que ejecuto el instalador (runasoriginaluser), NO elevada:
+; una ventana WPF lanzada con el token de administrador desde el instalador puede quedar sin mostrarse.
+Filename: "{app}\ui\{#MyAppExeName}"; Description: "{cm:LaunchProgram,LockSuite}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
 ; Detiene, desinstala el servicio y limpia filtros WFP + NRPT antes de borrar archivos.

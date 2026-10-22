@@ -141,31 +141,59 @@ public sealed class NamedPipeServer : IDisposable
             PipeOptions.Asynchronous);
     }
 
+    // Una conexion IPC legitima envia su peticion de inmediato; si no llega nada en este tiempo
+    // se cierra, para que un cliente colgado no retenga recursos del servicio indefinidamente.
+    private static readonly TimeSpan ClientIdleTimeout = TimeSpan.FromSeconds(30);
+
     private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken token)
     {
-        using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
-        using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+        // UTF-8 SIN BOM y sin AutoFlush: ver LockSuiteClient.IpcEncoding (evita un deadlock de BOM
+        // entre cliente y servidor, ya que el pipe no tiene buffer).
+        using var reader = new StreamReader(pipe, LockSuiteClient.IpcEncoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
+        using var writer = new StreamWriter(pipe, LockSuiteClient.IpcEncoding, bufferSize: 4096, leaveOpen: true);
 
-        while (!token.IsCancellationRequested && pipe.IsConnected)
+        try
         {
-            string? line = await reader.ReadLineAsync(token);
-            if (line == null) break;
-
-            var request = IpcRequest.Deserialize(line);
-            IpcResponse response;
-
-            if (request == null)
+            while (!token.IsCancellationRequested && pipe.IsConnected)
             {
-                response = IpcResponse.Fail("Petición IPC inválida");
-            }
-            else
-            {
-                response = ProcessRequest(request);
-            }
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
+                idle.CancelAfter(ClientIdleTimeout);
 
-            string responseJson = IpcResponse.Serialize(response);
-            await writer.WriteLineAsync(responseJson.AsMemory(), token);
-            await writer.FlushAsync(token);
+                string? line = await reader.ReadLineAsync(idle.Token);
+                if (line == null) break;
+
+                IpcRequest? request;
+                try
+                {
+                    request = IpcRequest.Deserialize(line);
+                }
+                catch (JsonException)
+                {
+                    request = null;
+                }
+
+                IpcResponse response;
+                if (request == null)
+                {
+                    response = IpcResponse.Fail("Petición IPC inválida");
+                }
+                else
+                {
+                    response = ProcessRequest(request);
+                }
+
+                string responseJson = IpcResponse.Serialize(response);
+                await writer.WriteLineAsync(responseJson.AsMemory(), idle.Token);
+                await writer.FlushAsync(idle.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Servicio deteniendose o cliente inactivo: cierre normal.
+        }
+        catch (IOException)
+        {
+            // El cliente cerro la conexion a mitad de una operacion: normal.
         }
     }
 

@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.4.0 — Construida, testeada al 100% (365/365 tests) y publicada en GitHub Releases.** Botones "Permitir" por servicio (Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top), bloqueo prioritario del buscador de Google y Gemini, y migración automática de la lista blanca.
-Versión anterior: **0.3.0 — construida, auditada y empaquetada (96/96 tests).** Modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), Ayuda/FAQ, hardening del auto-update (SHA256SUMS obligatorio + ACL cerrada).
-Última actualización: 2026-10-21, sesión 9 (Claude: análisis y código; Antigravity: build, tests 365/365, empaquetado y release v0.4.0).
+Versión actual: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.** Resuelve deadlock de Named Pipe en arranque de GUI, cascading timeouts en UI, compatibilidad nativa x64 en Inno Setup (`runasoriginaluser`), supresión de error ICMP 10054 en DNS y tests de integración de IPC.
+Versión anterior: **0.4.0 — Construida y testeada (365/365 tests).** Botones "Permitir" por servicio (Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top), bloqueo prioritario del buscador de Google y Gemini, y migración automática de la lista blanca.
+Última actualización: 2026-10-21, sesión 10 (Antigravity: corrección de deadlock NamedPipe, guard UI startup, Inno Setup 64-bit, tests IPC round-trip 372/372, build v0.4.1 y copiado a pendrive).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -165,20 +165,22 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - Análisis exhaustivo de dominios de Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il y mitmachim.top (listas oficiales de Google + captura en navegador + fuentes secundarias) → `docs/ANALISIS_DOMINIOS_SERVICIOS.md`.
 - Corregido el agujero kosher del paquete viejo de Google (`google.com` entero = buscador y Gemini abiertos).
 - Un paquete y una tarjeta por servicio ("Permitir Gmail", etc., con "Abrir"), paquete "Bloqueo fijo: buscador de Google y Gemini" con prioridad, sintaxis `=host` y `lh*.x.com`, migración automática (`PresetSync`), notas en "Bloqueados Recientes", FAQ.
-- Tests nuevos/ajustados en Core y Service; lógica verificada con simulación en Python (todo en verde). Sin compilar: build, tests, empaquetado y VM a cargo de Antigravity. Versión 0.4.0.
+- Tests nuevos/ajustados en Core y Service; lógica verificada con simulación en Python (todo en verde). Versión 0.4.0.
+
+### Sesión 10 — 2026-10-21 (Fix Named Pipe Deadlock, UI Startup Guard, Inno x64, 372 Tests y Release v0.4.1 — Antigravity)
+- **Diagnóstico y solución del fallo de apertura de la UI:**
+  1. **Deadlock en Named Pipe IPC:** `StreamWriter(pipe, Encoding.UTF8)` con `AutoFlush=true` emitía el preámbulo UTF-8 BOM sincrónicamente al instanciarse en ambos lados (cliente y servidor) con búfer Win32 de 0 bytes, bloqueando el pipe de forma cruzada. Solución: codificación canónica UTF8 sin BOM (`new UTF8Encoding(false)`), `AutoFlush=false` con `FlushAsync()` explícito, timeout de inactividad de 30s en servidor y manejo de `OperationCanceledException`.
+  2. **Cascada de timeouts en arranque de UI:** En `MainViewModel.cs`, si el servicio aún no contestaba al primer llamado de estado, el código encadenaba llamadas a `GetRecentBlockedAsync`, `RefreshTrialAsync` y `ReloadConfigAsync`, acumulando más de 12 segundos de bloqueo sincrónico. Se implementó guard de concurrencia con `Interlocked.Exchange` y retorno inmediato si `status == null`.
+  3. **Instalador Inno Setup:** Se agregaron directivas `ArchitecturesAllowed=x64compatible` y `ArchitecturesInstallIn64BitMode=x64compatible` para que el servicio se instale en el directorio nativo de 64 bits (`C:\Program Files\LockSuite`). Se agregó flag `runasoriginaluser` en la directiva `[Run]` para que la UI se lance con el token de usuario estándar interactivo y no con elevación oculta.
+  4. **DNS Socket Error 10054:** Se configuró el control de socket `SIO_UDP_CONNRESET` en `DnsResolver.cs` para evitar excepciones por paquetes ICMP Port Unreachable de clientes locales cerrados.
+  5. **Suite de pruebas de integración de IPC:** Se implementó `tests/LockSuite.Service.Tests/IpcRoundTripTests.cs` validando el ciclo de vida completo de NamedPipe (Ping, GetStatus, tolerancia a UTF-8 BOM, manejo de líneas inválidas y fallo rápido si el servicio no está corriendo).
+- **Resultados:** 372/372 tests pasando al 100% (312 Core + 60 Service).
+- **Empaquetado:** Generado `LockSuiteSetup-0.4.1.exe` (70.33 MB) con su respectivo `SHA256SUMS.txt`, y copiado a la unidad USB (`F:\Locksuite windows`).
 
 ---
 
 ## 8. Próximo paso
 
-**Para Antigravity (tiene terminal Windows):** seguir `HANDOFF_ANTIGRAVITY.md`, sección **"SESIÓN 9"**:
-1. `dotnet build` y `dotnet test` (usuario estándar). Deben pasar los 96 previos (con el test de `ConfigManager` ajustado: `google.com` ya **no** se permite) **más** los nuevos (`PresetsTests`, `PresetSyncTests`, casos nuevos de `DomainMatcherTests` y `ConfigManagerTests`). Si algo no compila, es de la sesión 9: reportar archivo/línea.
-2. Empaquetar **v0.4.0** (`.\scripts\publish-release.ps1 -Version "0.4.0" ...` o a mano) — incluye todo lo de v0.3.0; si la 0.3.0 no se publicó, publicar directo la 0.4.0.
-3. Validar en VM con una **cuenta de Google de prueba**: (a) migración desde v0.3.0 (`www.google.com` deja de abrir); (b) las 6 tarjetas y el botón "Abrir"; (c) cada servicio con el modo aprendizaje activo; (d) los negativos kosher (buscador, Gemini, YouTube, Play…). Anotar: si los videos de Drive/Fotos reproducen, si "Insertar imagen → Buscar en la web" de Documentos muestra resultados, y cualquier host sin nota que haya hecho falta.
-4. También siguen pendientes las validaciones de la sesión 8 (§3 de esa sección: "Instalar en mi usuario", modo de prueba, auto-update con SHA256SUMS).
-5. Si todo pasa: commit (`feat(v0.4.0): ...`), publicar, y actualizar este `ESTADO.md` con los resultados reales.
-
-**Para la próxima sesión de Claude (después de la validación):**
-1. Sumar a `Presets.cs` los hosts que Antigravity haya encontrado faltantes (y al "Bloqueo fijo" el de la búsqueda de imágenes de Documentos, si aparece). La actualización los propaga sola (`PresetSync`).
-2. Sacar `github.com`/`githubusercontent.com` de la lista blanca general: que el auto-update resuelva GitHub desde el propio servicio (ya tiene permiso WFP por AppId), así el usuario no puede navegar GitHub.
-3. Evaluar la **fase 2 (SNI)** de `docs/ANALISIS_VIABILIDAD.md` §2.4: con Gmail permitido, las IPs compartidas de Google son el hueco técnico que queda para llegar al buscador.
+1. Validar en PC destino / VM con el instalador v0.4.1 desde el pendrive.
+2. Confirmar inicio de sesión en Gmail / Google Drive / Chat / Fotos y verificar que el buscador y Gemini continúen bloqueados.
+3. Evaluar la fase 2 (SNI) de `docs/ANALISIS_VIABILIDAD.md` §2.4 para el filtrado TLS granular.
