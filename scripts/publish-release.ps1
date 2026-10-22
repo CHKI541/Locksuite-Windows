@@ -101,8 +101,8 @@ Write-Host "  -> SHA256: $sha" -ForegroundColor Green
 
 # 7. Git commit y push
 Write-Host "[6/6] Commit, push y Release en GitHub..." -ForegroundColor Yellow
-git add installer/LockSuiteSetup.iss src/LockSuite.Service/Program.cs
-git commit -m "release: bump version to v$Version"
+git add -A
+git commit -m "release: v$Version - $Notes"
 git push origin main
 if ($LASTEXITCODE -ne 0) { exit 1 }
 

@@ -42,8 +42,17 @@ En un asistente: pide la contraseña maestra; si la cuenta desde la que se insta
 ## 3. Presets de ejemplo (lista blanca de referencia)
 
 - **Google (Gmail, Chat, Drive, Fotos):** en la práctica es un paquete de docenas de subdominios (`accounts.google.com`, `mail.google.com`, `chat.google.com`, `drive.google.com`, `photos.google.com`, `*.googleusercontent.com`, `*.gstatic.com`, `apis.google.com`, `*.googleapis.com`, etc.), no un solo dominio. Conviene como "paquete" armado y ajustado con el modo aprendizaje, no tipeado a mano.
-- `mitmachim.top`, `prog.co.il`, `mercadopago.com.ar` — dominios puntuales, van directo a la lista.
+  - **Actualización sesión 9:** se implementó como **un paquete por servicio** (botones "Permitir Gmail", "Permitir Google Chat", "Permitir Google Drive", "Permitir Google Fotos") con hosts puntuales — nunca `google.com`, `googleapis.com`, `gstatic.com` ni `googleusercontent.com` enteros, porque abren el buscador, Gemini, almacenamiento público, etc. — más un paquete de **bloqueo con prioridad** ("Bloqueo fijo: buscador de Google y Gemini"). Detalle host por host en `docs/ANALISIS_DOMINIOS_SERVICIOS.md`.
+- `mitmachim.top`, `prog.co.il`, `mercadopago.com.ar` — dominios puntuales, van directo a la lista. (Sesión 9: `prog.co.il` y `mitmachim.top` tienen su propio paquete/botón con los recursos de terceros que necesitan para verse bien: Cloudflare, jQuery, CDNs, fuentes hebreas.)
 - Conviene sumar de entrada, como "esenciales del sistema" (si no, aparecen errores raros o el cartel de "sin internet" de Windows): servidores de hora (`time.windows.com`), verificación de certificados (OCSP/CRL de los CAs) y el endpoint de verificación de conectividad de Windows.
+
+### 3.1 Sintaxis de patrones y prioridad de bloqueo (sesión 9)
+
+- `ejemplo.com` → el sitio y todos sus subdominios; `*.ejemplo.com` → solo subdominios.
+- `=ejemplo.com` → solo ese host exacto.
+- `lh*.ejemplo.com`, `*-docs.ejemplo.com` → comodín dentro de **una** etiqueta (nunca cruza un punto). Hace falta para familias de hosts como `lh3`/`lh7-rt`, `ci3`…`ci6`, `doc-0s-1a-docs`.
+- Un paquete puede ser de **bloqueo** (`blocks: true`): mientras esté activo, sus hosts quedan bloqueados aunque otro paquete los permita. Permitido = (coincide con la lista blanca) **y no** (coincide con un bloqueo activo).
+- Con los servicios de Google habilitados, el agujero de IP compartida de la sección 2.4 se vuelve más relevante (las IPs de Gmail también sirven el buscador): la fase 2 (SNI) pasa a ser la mejora de seguridad más valiosa.
 
 ## 4. Rendimiento
 

@@ -11,5 +11,6 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
         <converters:BoolYesNoConverter x:Key="BoolYesNo"/>
+        <converters:BlockedDomainNoteConverter x:Key="BlockedDomainNote"/>
     </Application.Resources>
 </Application>

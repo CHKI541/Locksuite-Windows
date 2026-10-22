@@ -1,8 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using LockSuite.Core;
 using LockSuite.UI.ViewModels;
 using LockSuite.UI.Views;
 
@@ -108,6 +110,20 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Desactivar un paquete de bloqueo (p. ej. el del buscador de Google y Gemini) pide confirmación.
+            if (pack.Blocks && chk.IsChecked == false)
+            {
+                var confirm = MessageBox.Show(this,
+                    $"Vas a desactivar «{pack.Name}».\n\nMientras esté desactivado, esos sitios dejan de estar bloqueados si algún paquete los permite (por ejemplo, el buscador de Google o Gemini).\n\n¿Continuar?",
+                    "Desactivar bloqueo", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    chk.IsChecked = true;
+                    pack.Enabled = true;
+                    return;
+                }
+            }
+
             bool ok = await ViewModel.TogglePackAsync(pack);
             if (!ok)
             {
@@ -117,15 +133,80 @@ public partial class MainWindow : Window
         }
     }
 
+    // ----------------- Servicios con un clic ("Permitir Gmail", etc.) -----------------
+
+    private async void BtnServiceToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.DataContext is not PackViewModel pack) return;
+        if (!await EnsureAuthenticatedAsync()) return;
+
+        bool previous = pack.Enabled;
+        pack.Enabled = !previous;   // TogglePackAsync envía el estado nuevo
+
+        bool ok = await ViewModel.TogglePackAsync(pack);
+        if (!ok)
+        {
+            pack.Enabled = previous;
+            MessageBox.Show(this, $"No se pudo actualizar «{pack.Title}». Verificá que el servicio LockSuite esté en ejecución.",
+                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        if (pack.Enabled)
+        {
+            MessageBox.Show(this,
+                $"{pack.Title} quedó permitido.\n\nSi el navegador ya tenía la página abierta, recargala (F5). " +
+                "El buscador de Google y Gemini siguen bloqueados.",
+                "Servicio permitido", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show(this,
+                $"{pack.Title} quedó bloqueado.\n\nLo que ya estaba abierto puede seguir funcionando unos minutos " +
+                "(hasta que venzan la caché de DNS y la autorización temporal).",
+                "Servicio bloqueado", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private void BtnServiceOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string url) return;
+
+        // Solo direcciones https del catálogo de servicios.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"No se pudo abrir el navegador: {ex.Message}\n\nDirección: {uri.AbsoluteUri}",
+                "Abrir servicio", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private async void BtnAddDomain_Click(object sender, RoutedEventArgs e)
     {
         if (!await EnsureAuthenticatedAsync()) return;
 
-        var existingPacks = ViewModel.Packs.Select(p => p.Name).ToList();
+        // Solo paquetes del tutor: los de fábrica se manejan con sus botones y los de bloqueo no reciben permisos.
+        var existingPacks = ViewModel.CustomPackNames();
         var dlg = new AddDomainDialog(existingPacks) { Owner = this };
 
         if (dlg.ShowDialog() == true)
         {
+            // Aviso si el patrón abarca el buscador de Google o Gemini (p. ej. "google.com").
+            if (Presets.CoversKosherBlockedSites(dlg.Domain))
+            {
+                var confirm = MessageBox.Show(this,
+                    $"«{dlg.Domain}» abarca el buscador de Google y/o Gemini.\n\n" +
+                    "Esas partes van a seguir bloqueadas por el «Bloqueo fijo» mientras esté activo, pero se habilitarían muchos otros servicios de Google (Play, Noticias, Mapas, etc.).\n\n" +
+                    "Para Gmail, Chat, Drive y Fotos conviene usar sus botones en «Lista Blanca». ¿Agregar igual?",
+                    "Dominio muy amplio", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.Yes) return;
+            }
+
             bool ok = await ViewModel.AddDomainAsync(dlg.Domain, dlg.SelectedPack);
             if (ok)
             {
@@ -144,7 +225,12 @@ public partial class MainWindow : Window
         {
             if (!await EnsureAuthenticatedAsync()) return;
 
-            var result = MessageBox.Show(this, $"¿Seguro que desea eliminar '{domain}' de la lista blanca?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            bool inBlockPack = ViewModel.Packs.Any(p => p.Blocks && p.Domains.Contains(domain));
+            string question = inBlockPack
+                ? $"«{domain}» está en un paquete de bloqueo. Si lo quitás, deja de estar bloqueado cuando algún paquete lo permita.\n\n¿Quitarlo del bloqueo?"
+                : $"¿Seguro que desea eliminar '{domain}' de la lista blanca?\n\n(Se quita de todos los paquetes donde aparece. Se puede volver a agregar con «+ Agregar Dominio».)";
+            var result = MessageBox.Show(this, question, "Confirmar Eliminación", MessageBoxButton.YesNo,
+                inBlockPack ? MessageBoxImage.Warning : MessageBoxImage.Question);
             if (result == MessageBoxResult.Yes)
             {
                 bool ok = await ViewModel.RemoveDomainAsync(domain);
@@ -160,9 +246,19 @@ public partial class MainWindow : Window
     {
         if (sender is Button btn && btn.Tag is string domain)
         {
+            // Lo que está en un bloqueo fijo (buscador de Google, Gemini) no se habilita agregándolo a la lista.
+            if (ViewModel.IsHardBlocked(domain))
+            {
+                MessageBox.Show(this,
+                    $"«{domain}» está bloqueado a propósito por un paquete de bloqueo (por ejemplo, «Bloqueo fijo: buscador de Google y Gemini»).\n\n" +
+                    "Agregarlo a la lista blanca no lo habilitaría. Si de verdad hace falta, primero hay que desactivar ese bloqueo en «Lista Blanca».",
+                    "Bloqueo fijo", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             if (!await EnsureAuthenticatedAsync()) return;
 
-            bool ok = await ViewModel.AddDomainAsync(domain, "Personalizados");
+            bool ok = await ViewModel.AddDomainAsync(domain, Presets.CustomPackName);
             if (ok)
             {
                 MessageBox.Show(this, $"El dominio '{domain}' ha sido permitido y agregado a la lista blanca.", "Dominio Permitido", MessageBoxButton.OK, MessageBoxImage.Information);

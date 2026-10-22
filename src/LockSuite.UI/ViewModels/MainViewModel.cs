@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using LockSuite.Core;
@@ -156,6 +158,13 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     public ObservableCollection<PackViewModel> Packs { get; } = new();
+
+    /// <summary>
+    /// Paquetes que se muestran como tarjeta "Permitir X" (Gmail, Chat, Drive, Fotos, prog.co.il,
+    /// mitmachim.top), en el orden del catalogo. Son las mismas instancias que en <see cref="Packs"/>.
+    /// </summary>
+    public ObservableCollection<PackViewModel> ServicePacks { get; } = new();
+
     public ObservableCollection<BlockedDomainEvent> RecentBlocked { get; } = new();
 
     public MainViewModel()
@@ -271,11 +280,41 @@ public sealed class MainViewModel : ViewModelBase
         if (config != null)
         {
             Packs.Clear();
-            foreach (var p in config.Packs)
+            ServicePacks.Clear();
+            foreach (var p in config.Packs ?? new List<DomainPack>())
             {
+                if (p is null) continue;
                 Packs.Add(PackViewModel.FromModel(p));
             }
+
+            // Tarjetas de servicios: en el orden del catalogo de presets.
+            foreach (var def in Presets.Catalog.Where(d => d.IsService))
+            {
+                var vm = Packs.FirstOrDefault(p => string.Equals(p.Id, def.Id, StringComparison.OrdinalIgnoreCase));
+                if (vm != null) ServicePacks.Add(vm);
+            }
         }
+    }
+
+    /// <summary>
+    /// True si el host esta en un paquete de bloqueo activo (p. ej. el buscador de Google o Gemini):
+    /// agregarlo a la lista blanca no lo habilitaria.
+    /// </summary>
+    public bool IsHardBlocked(string host)
+    {
+        var blockPatterns = Packs.Where(p => p.Blocks && p.Enabled).SelectMany(p => p.Domains);
+        return DomainMatcher.MatchesAny(blockPatterns, host);
+    }
+
+    /// <summary>Paquetes del tutor (no de fabrica ni de bloqueo) para el dialogo "Agregar dominio".</summary>
+    public List<string> CustomPackNames()
+    {
+        var names = Packs.Where(p => !p.BuiltIn && !p.Blocks).Select(p => p.Name).ToList();
+        if (!names.Any(n => string.Equals(n, Presets.CustomPackName, StringComparison.OrdinalIgnoreCase)))
+        {
+            names.Insert(0, Presets.CustomPackName);
+        }
+        return names;
     }
 
     public async Task<(bool Success, string? Error)> AuthenticateTutorAsync(string password)

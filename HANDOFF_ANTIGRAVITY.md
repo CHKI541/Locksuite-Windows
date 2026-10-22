@@ -171,3 +171,69 @@ $h = (Get-FileHash "bin\installer\LockSuiteSetup-0.3.0.exe" -Algorithm SHA256).H
 
 ## 4. Al terminar
 Actualizar `ESTADO.md` (resultados reales de build/test/VM, nueva línea de log, próximo paso) y `git commit` descriptivo. Si se publica, `git tag v0.3.0` dispara el workflow (o usar el script).
+
+---
+
+# SESIÓN 9 (Claude) — botones "Permitir Gmail / Chat / Drive / Fotos / prog.co.il / mitmachim.top" + bloqueo fijo del buscador y Gemini → v0.4.0
+
+> Claude corrió sin `dotnet` (entorno Linux, sin red a NuGet): **no compiló ni corrió los tests**. Sí verificó la lógica nueva con una simulación en Python (matcher, listas y migración: todas las verificaciones en verde) y que los XAML sean XML válido. Si algo no compila, es de esta sesión: reportar archivo/línea.
+> **v0.4.0 incluye todo lo de v0.3.0** (sesión 8). Si v0.3.0 todavía no se publicó, se puede publicar directamente v0.4.0 y validar ambas listas (§3 de la sesión 8 + §3 de abajo).
+
+## 0. Archivos creados/modificados en la sesión 9
+
+**Core:** `DomainMatcher.cs` (sintaxis `=host` exacto y comodín de una etiqueta `lh*.x.com`; `MatchesAny`; `IsAllowed(lista, host, bloqueos)` con prioridad de bloqueo), `WhitelistConfig.cs` (`DomainPack.Id`/`Blocks`/`Excluded`, `ActiveBlockPatterns`, `IsHardBlocked`, `version` 2), `Presets.cs` (reescrito: catálogo con un paquete por servicio + "Bloqueo fijo: buscador de Google y Gemini" + notas para "Bloqueados recientes"), `PresetSync.cs` (NUEVO: migración de configs v0.2/v0.3 y sincronización de presets).
+**Service:** `Config/ConfigManager.cs` (snapshot permitidos+bloqueos, `PresetSync` al cargar y en `SaveConfig`, `AddDomain`/`RemoveDomain` con paquetes de fábrica y lista `excluded`), `Program.cs` (`Version = "0.4.0"`).
+**UI:** `MainWindow.xaml` (Lista Blanca: tarjetas "Permitir X" + "Abrir", estilo de paquetes de bloqueo, nota en Bloqueados Recientes, 3 FAQ nuevas), `MainWindow.xaml.cs` (handlers de tarjetas, avisos de bloqueo fijo y de dominios amplios), `ViewModels/PackViewModel.cs`, `ViewModels/MainViewModel.cs` (`ServicePacks`, `IsHardBlocked`, `CustomPackNames`), `Converters/BlockedDomainNoteConverter.cs` (NUEVO), `App.xaml`.
+**Instalador:** `installer/LockSuiteSetup.iss` (`MyAppVersion` 0.4.0).
+**Tests:** `tests/LockSuite.Core.Tests/DomainMatcherTests.cs` (+casos), `PresetsTests.cs` (NUEVO), `PresetSyncTests.cs` (NUEVO), `tests/LockSuite.Service.Tests/ConfigManagerTests.cs` (ajustado: `google.com` ya NO debe estar permitido; +7 tests).
+**Docs:** `docs/ANALISIS_DOMINIOS_SERVICIOS.md` (NUEVO, análisis host por host), `docs/ANALISIS_VIABILIDAD.md` (§3 y §3.1), `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` (§2.6), `ESTADO.md`.
+
+## 1. Build + tests (usuario estándar, sin elevación)
+
+```powershell
+cd "C:\Locksuite windows"
+dotnet build LockSuite.sln -c Release
+dotnet test  LockSuite.sln -c Release
+```
+Esperado: los 96 previos (con `ConfigManagerTests.Constructor_CreatesDefaultConfig_WhenFileDoesNotExist` ajustado) **más** los nuevos: `DomainMatcherTests` (sintaxis nueva y prioridad de bloqueo), `PresetsTests` (nada de la lista "nunca" queda permitido con todos los paquetes activos; cada botón habilita lo que su servicio necesita; botones independientes), `PresetSyncTests` (migración, idempotencia, `excluded`, renombres) y los nuevos de `ConfigManagerTests` (migración desde un `whitelist.json` de v0.3.0, quitar/restituir dominios de fábrica, bloqueo fijo gana sobre `google.com`).
+
+## 2. Publicar + empaquetar v0.4.0
+
+```powershell
+.\scripts\publish-release.ps1 -Version "0.4.0" -Notes "Botones Permitir Gmail/Chat/Drive/Fotos/prog.co.il/mitmachim.top; bloqueo fijo del buscador de Google y Gemini; migración automática de la lista blanca"
+```
+(o a mano como en la sesión 8 §2, cambiando 0.3.0 por 0.4.0).
+
+## 3. Validación en VM de Windows 11 (con una cuenta de Google **de prueba**)
+
+Preparación: instalar como admin; abrir LockSuite → Configuración → dejar **Modo Aprendizaje** activo. Antes de probar cada servicio: Bloqueados Recientes → **Vaciar historial**. Al terminar cada uno, anotar lo que quedó en Bloqueados Recientes (cada dominio conocido muestra una nota; lo que **no** tiene nota y rompe algo es lo que hay que reportar).
+
+### 3.1 Migración desde v0.3.0 (lo más importante)
+1. VM con **v0.3.0** instalada (o copiar a `%ProgramData%\LockSuite\config\whitelist.json` una config de v0.3.0) y verificar que hoy `www.google.com` **abre** (el agujero viejo).
+2. Actualizar a v0.4.0 (instalador o auto-update). Abrir `whitelist.json`: ya no debe estar "Google (Gmail, Chat, Drive, Fotos)"; deben estar `gmail`, `google-chat`, `google-drive`, `google-photos`, `prog`, `mitmachim` y `kosher-block` (`"blocks": true`), con `"version": 2`.
+3. `www.google.com`, `google.com.ar` y `gemini.google.com` → bloqueados. Gmail/Drive → siguen funcionando.
+
+### 3.2 Interfaz
+- Lista Blanca: 6 tarjetas (Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top), en 3 columnas, que se vean bien también con la ventana al mínimo (850 px).
+- "Bloquear X" / "Permitir X": pide contraseña del tutor, cambia el color/estado, y el cambio se refleja en el paquete de abajo.
+- "Abrir ↗": abre el navegador en `mail.google.com/mail/`, `chat.google.com/u/0/`, `drive.google.com/drive/my-drive`, `photos.google.com/login`, `www.prog.co.il`, `mitmachim.top`.
+- Paquete "Bloqueo fijo…" en rojo; destildarlo pide confirmación.
+- "+ Agregar Dominio" con `google.com` → muestra el aviso de dominio amplio; si se agrega igual, `www.google.com` sigue bloqueado.
+- Bloqueados Recientes → "Permitir" sobre `www.google.com` → explica que es un bloqueo fijo y no lo agrega.
+- Quitar con ✕ un dominio de un paquete de fábrica (p. ej. `keep.google.com`), reiniciar el servicio (`sc stop LockSuiteService` / `sc start LockSuiteService` como admin) → sigue quitado.
+
+### 3.3 Servicio por servicio (navegador Chrome y Edge, cuenta estándar)
+- **Gmail:** iniciar sesión desde "Abrir" (incluida verificación en 2 pasos si la cuenta la tiene) · bandeja · correo con imágenes (se ven) · adjunto PDF/imagen: vista previa y descarga · redactar y enviar con adjunto · autocompletar contactos · invitación de Calendario · panel lateral (Calendario/Tareas/Keep/Contactos) · avatar → **Cerrar sesión** · Gemini/"Ayudame a escribir": no debe funcionar.
+- **Google Chat:** mensajes en tiempo real entre dos cuentas · imágenes y adjuntos · el botón de GIF no debe mostrar GIFs.
+- **Google Drive:** listar, subir, descargar · vista previa de PDF, imagen y Office · abrir y editar Documentos/Hojas/Presentaciones · diálogo Compartir · exportar un Documento como PDF · **video**: anotar si la vista previa reproduce (y qué host aparece bloqueado si no) · Documentos → **Insertar → Imagen → Buscar en la web**: anotar si muestra resultados (si los muestra, anotar el host para agregarlo al bloqueo fijo).
+- **Google Fotos:** miniaturas y foto completa · **video** (anotar si reproduce) · subir una foto · abrir un enlace de álbum compartido.
+- **prog.co.il:** portada con imágenes y carruseles · abrir un hilo (pasa la verificación "Un momento…" de Cloudflare) · iniciar sesión.
+- **mitmachim.top:** portada y un tema con fuentes hebreas correctas · iniciar sesión (con cuenta existente o "Ingresar con Google").
+
+### 3.4 Negativos kosher (todo debe quedar bloqueado, con todos los botones activos)
+`www.google.com`, `google.com`, `www.google.com.ar`, `www.google.co.il`, búsqueda desde la barra de direcciones de Chrome y de Edge, `gemini.google.com`, `aistudio.google.com`, `notebooklm.google.com`, `www.youtube.com`, `play.google.com`, `news.google.com`, `maps.google.com`, `workspace.google.com`, `storage.googleapis.com`.
+
+## 4. Al terminar
+1. Si algún servicio necesitó un host que no estaba: anotarlo (host + para qué) en `ESTADO.md` → se suma a `Presets.cs` en la próxima sesión (la actualización lo propaga sola a los equipos vía `PresetSync`).
+2. Actualizar `ESTADO.md` (resultados reales, nueva línea de log, próximo paso) y commit, p. ej.:
+   `feat(v0.4.0): botones Permitir por servicio (Gmail/Chat/Drive/Fotos/prog/mitmachim), bloqueo fijo del buscador de Google y Gemini, migración de presets`

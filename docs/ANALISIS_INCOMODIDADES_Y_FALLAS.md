@@ -63,9 +63,10 @@ Son situaciones donde el filtro está funcionando exactamente como fue programad
 ### 2.6 El dilema "Gmail y Drive sí, pero Buscador de Google no"
 * **Descripción:** Si se autoriza `google.com` para usar Gmail, Google Chat o Drive, automáticamente queda accesible el buscador mundial de Google (`www.google.com`), que incluye imágenes, resúmenes de inteligencia artificial y noticias.
 * **Causa técnica:** Google unifica casi todos sus servicios bajo el dominio raíz `google.com` y comparte cookies de autenticación mediante `accounts.google.com`.
-* **Solución en LockSuite:**
-  - El tutor puede autorizar subdominios puntuales: `mail.google.com`, `chat.google.com`, `drive.google.com`, `accounts.google.com`, `gstatic.com`, `googleusercontent.com`.
-  - Se excluye explícitamente `www.google.com`. (Nota: algunos botones internos de Google pueden intentar redirigir al buscador, pero quedarán bloqueados con NXDOMAIN).
+* **Solución en LockSuite (implementada en la sesión 9, v0.4.0):**
+  - Un botón por servicio en «Lista Blanca» ("Permitir Gmail", "Permitir Google Chat", "Permitir Google Drive", "Permitir Google Fotos"), cada uno con hosts puntuales (`mail.google.com`, `chat.google.com`, `drive.google.com`, `docs.google.com`, `photos.google.com`, `accounts.google.com`, `www.gstatic.com`, `lh*.googleusercontent.com`, …). Nunca `google.com`, `gstatic.com`, `googleapis.com` ni `googleusercontent.com` enteros.
+  - Paquete **"Bloqueo fijo: buscador de Google y Gemini"** con prioridad sobre cualquier permiso: `www.google.com`, `google.com`, `google.com.ar`, `gemini.google.com`, el backend de Gemini dentro de Gmail/Docs (`appsgenaiserver-pa.clients6.google.com`), etc.
+  - Los botones internos de Google que llevan al buscador quedan bloqueados con NXDOMAIN. Detalle completo y riesgos residuales en `docs/ANALISIS_DOMINIOS_SERVICIOS.md`.
 
 ---
 

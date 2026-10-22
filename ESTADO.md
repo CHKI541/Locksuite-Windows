@@ -1,7 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.3.0 — Construida, auditada y empaquetada exitosamente (96/96 tests pasando). Incluye modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), pestaña Ayuda/FAQ, hardening crítico de auto-update (SHA256SUMS obligatorio + ACL cerrada en updates) y mitigación de evasión de desinstalación.**
-Última actualización: 2026-10-21, sesión 8 (Claude: código y auditoría; Antigravity: parches de seguridad C1/A1/A2/M2/M3, build, tests 96/96 y empaquetado Inno Setup).
+Versión actual: **0.4.0 en código (sesión 9) — pendiente de build, tests y empaquetado por Antigravity.** Agrega botones "Permitir Gmail / Google Chat / Google Drive / Google Fotos / prog.co.il / mitmachim.top", el paquete "Bloqueo fijo: buscador de Google y Gemini" (bloqueo con prioridad) y la migración automática de la lista blanca vieja (que abría el buscador de Google).
+Versión anterior: **0.3.0 — construida, auditada y empaquetada (96/96 tests).** Modo de prueba (trial), "Instalar en mi usuario" (RunAsInvoker), Ayuda/FAQ, hardening del auto-update (SHA256SUMS obligatorio + ACL cerrada) y mitigación de evasión de desinstalación.
+Última actualización: 2026-10-21, sesión 9 (Claude, sin terminal Windows: análisis de dominios por servicio, código, tests y documentación).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -15,7 +16,7 @@ Esto lo ubica en la misma categoría que productos como Techloq, Netspark o TAG:
 
 Software para Windows 11 que bloquea todo internet salvo una lista blanca de dominios, administrado por una persona con contraseña maestra; quienes usan el equipo tienen cuenta estándar sin esa contraseña.
 
-Lista blanca de referencia: Google (Gmail/Chat/Drive/Fotos), mitmachim.top, prog.co.il, mercadopago.com.ar.
+Lista blanca de referencia: Gmail, Google Chat, Google Drive, Google Fotos, mitmachim.top, prog.co.il (cada uno con su botón "Permitir…"), mercadopago.com.ar. El buscador de Google y Gemini quedan bloqueados siempre (bloqueo fijo con prioridad).
 
 ## 2. Decisiones de arquitectura (ya tomadas)
 
@@ -30,6 +31,10 @@ Lista blanca de referencia: Google (Gmail/Chat/Drive/Fotos), mitmachim.top, prog
 | Interfaz | WPF moderna: estado del sistema, lista blanca, "bloqueados recientes" (modo aprendizaje con 1 clic para permitir), config, y Ayuda/FAQ. |
 | Instalador | Inno Setup: registra servicio, aplica filtros, crea directorios protegidos, deja accesos directos, página de contraseña y página de modo de prueba. |
 | Instalación de programas por el usuario | El usuario estándar puede instalar programas. Opción de menú contextual "Instalar en mi usuario" (RunAsInvoker) para instaladores que piden admin sin necesitarlo. No afecta el filtro (es a nivel de red). |
+| Servicios de Google (sesión 9) | Un paquete por servicio con hosts puntuales. **Nunca** `google.com`, `googleapis.com`, `gstatic.com` ni `googleusercontent.com` enteros (abren el buscador, Gemini, almacenamiento público, etc.). Cada paquete trae el login y los estáticos, así cada botón funciona solo. Análisis host por host: `docs/ANALISIS_DOMINIOS_SERVICIOS.md`. |
+| Bloqueo con prioridad (sesión 9) | Un paquete puede ser de bloqueo (`blocks: true`): sus hosts quedan bloqueados aunque otro paquete los permita. De fábrica: "Bloqueo fijo: buscador de Google y Gemini" (incluye el backend de Gemini dentro de Gmail/Docs, `appsgenaiserver-pa.clients6.google.com`). |
+| Patrones (sesión 9) | `x.com` = sitio + subdominios; `*.x.com` = solo subdominios; `=x.com` = solo ese host; `lh*.x.com` = comodín dentro de una sola etiqueta (nunca cruza un punto). |
+| Paquetes de fábrica (sesión 9) | Tienen `id` estable. `PresetSync` los migra y actualiza al cargar la config: lo que el tutor quitó queda en `excluded` (no vuelve) y lo que agregó se mueve a "Personalizados". |
 
 ## 3. Explícitamente AFUERA del alcance (y por qué)
 
@@ -47,7 +52,8 @@ Multiplataforma (.NET 8).
 - `DomainMatcher.cs`: Normaliza y valida hosts contra patrones y comodines.
 - `SniParser.cs`: Decodifica el SNI de paquetes TLS ClientHello de forma defensiva.
 - `WhitelistConfig.cs`: Modelo de configuración y persistencia JSON.
-- `Presets.cs`: Paquetes predefinidos. **(Sesión 8)** Se agregó `githubusercontent.com` (pelado) para cubrir `release-assets.`/`objects.`/`raw.` y que el auto-update no se bloquee a sí mismo.
+- `Presets.cs`: Paquetes predefinidos. **(Sesión 8)** Se agregó `githubusercontent.com` (pelado) para cubrir `release-assets.`/`objects.`/`raw.` y que el auto-update no se bloquee a sí mismo. **(Sesión 9)** Reescrito como catálogo de paquetes por servicio + bloqueo fijo (ver 4.9).
+- `PresetSync.cs`: **(Sesión 9, NUEVO)** migración y sincronización de los paquetes de fábrica.
 - `TrialConfig.cs`: **(Sesión 8, NUEVO)** modelo puro del modo de prueba (duración, acción al terminar, autoridad de quitar, estado derivado del reloj). Testeable en Core.
 - `IpcMessages.cs` y `LockSuiteClient.cs`: Protocolo y cliente de Named Pipe. **(Sesión 8)** Se agregaron DTOs y métodos de trial (`GetTrialStatus`, `DecideTrial`, `SetTrial`).
 - Tests unitarios en `tests/LockSuite.Core.Tests/`: incluyen ahora `TrialConfigTests`.
@@ -90,6 +96,22 @@ Servicio de Windows y consola interactiva (.NET 8 Windows Service).
 - **A1:** Protección contra desinstalación prematura no autorizada en modo prueba (`DecideTrial(keep: false)` rechazado antes del vencimiento a menos que se presente autenticación del tutor).
 - **A2:** Recarga dinámica por timestamp (`ReloadIfChanged`) en `TrialManager` para que `--set-trial` impacte en el servicio en ejecución en menos de 10s sin requerir reinicio.
 - **M3:** Verificación de integridad `SHA256SUMS.txt` convertida en obligatoria para auto-updates en v0.3.0+.
+
+### 4.9 Botones "Permitir" por servicio + bloqueo fijo del buscador y Gemini (Sesión 9, v0.4.0) — EN CÓDIGO, sin compilar
+**Qué se construyó:**
+- **Análisis exhaustivo de dominios** de Gmail, Google Chat, Google Drive (con Documentos/Hojas/Presentaciones/Formularios), Google Fotos, prog.co.il y mitmachim.top: listas oficiales de Google para firewalls + captura real en navegador (recursos, iframes y scripts de cada sitio; login de Google; un Documento y una Presentación públicos) + fuentes secundarias. Tabla host por host, qué se incluye, qué se excluye a propósito y riesgos residuales en **`docs/ANALISIS_DOMINIOS_SERVICIOS.md`**.
+- **Hallazgo crítico corregido:** el paquete viejo "Google (Gmail, Chat, Drive, Fotos)" habilitaba `google.com`, `googleapis.com`, `gstatic.com`, `googleusercontent.com` enteros y `google.com.ar` → **el buscador de Google y Gemini estaban abiertos**. Ahora no.
+- **Core:** `DomainMatcher` (sintaxis `=host` y comodín de una etiqueta; bloqueos con prioridad), `WhitelistConfig` (`id`, `blocks`, `excluded`; `version` 2), `Presets` reescrito como catálogo (paquetes Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il, mitmachim.top + "Bloqueo fijo: buscador de Google y Gemini" + notas para "Bloqueados recientes"), `PresetSync` (NUEVO: migración idempotente de configs v0.2/v0.3).
+- **Servicio:** `ConfigManager` aplica permitidos − bloqueos en el camino caliente del DNS (snapshot inmutable), migra al cargar, y maneja quitar/restituir dominios de paquetes de fábrica.
+- **UI:** en "Lista Blanca", sección **"Servicios con un clic"** con 6 tarjetas: botón **"Permitir Gmail"** / **"Bloquear Gmail"** (y lo mismo para cada servicio), estado, aviso de qué queda afuera, y botón **"Abrir ↗"** que entra directo al login. Paquetes de bloqueo en rojo (desactivarlos pide confirmación). "Bloqueados Recientes" muestra una **nota** por dominio conocido (p. ej. "YouTube: bloqueado a propósito", "Publicidad: no hace falta"). "Permitir" sobre algo del bloqueo fijo explica y no lo agrega. Agregar `google.com` a mano avisa. 3 FAQ nuevas.
+- Versión subida a **0.4.0** en `Program.cs` y `.iss`.
+
+**Qué se probó (sin .NET en este entorno):**
+- Simulación en Python del matcher, de las listas reales (leídas de `Presets.cs`) y de `PresetSync`, replicando los tests nuevos: **todas las verificaciones en verde** (nada del buscador/Gemini/YouTube/Play/etc. queda permitido con todos los botones activos; cada botón habilita lo que su servicio necesita; migración e idempotencia).
+- XAML validado como XML bien formado; handlers y recursos referenciados existen.
+- **Falta (Antigravity):** `dotnet build`/`dotnet test`, empaquetar v0.4.0 y validar en VM con una cuenta de Google de prueba (checklist en `HANDOFF_ANTIGRAVITY.md`, sección "Sesión 9").
+
+**Riesgos residuales conocidos** (detalle en el análisis §11): IPs compartidas de Google sin SNI (un usuario técnico podría forzar el buscador → fase 2 SNI); lo que le compartan al usuario en Gmail/Drive/Fotos/Chat se ve; "Insertar imagen → Buscar en la web" de Documentos a verificar; videos de Drive/Fotos podrían no reproducirse (si usan infraestructura de YouTube); el registro de cuentas nuevas en mitmachim.top usa reCAPTCHA de `www.google.com` (bloqueado; entrar con cuenta existente funciona); "Esenciales del sistema" deja `github.com` abierto para todos (lo usa el auto-update).
 
 ## 5. Explícitamente afuera del alcance
 Igual que v0.2.0 (sin driver .sys, sin MITM/CA, sin blindaje anti-admin). Ver `docs/ANALISIS_VIABILIDAD.md`.
@@ -138,17 +160,24 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - **Tarea 3:** modo de prueba (trial) configurable con decisión del tutor al terminar (conservar/quitar), + `autoremove` (prueba descartable 10 min) y `tutorlock` opcionales. Fail-closed.
 - Todo aplicado **en código**; compilación, tests y empaquetado a cargo de Antigravity (ver HANDOFF). Versión subida a 0.3.0 en `Program.cs` y `.iss`.
 
+### Sesión 9 — 2026-10-21 (Botones "Permitir" por servicio + bloqueo fijo del buscador y Gemini — Claude, sin terminal Windows; tarea programada)
+- Análisis exhaustivo de dominios de Gmail, Google Chat, Google Drive, Google Fotos, prog.co.il y mitmachim.top (listas oficiales de Google + captura en navegador + fuentes secundarias) → `docs/ANALISIS_DOMINIOS_SERVICIOS.md`.
+- Corregido el agujero kosher del paquete viejo de Google (`google.com` entero = buscador y Gemini abiertos).
+- Un paquete y una tarjeta por servicio ("Permitir Gmail", etc., con "Abrir"), paquete "Bloqueo fijo: buscador de Google y Gemini" con prioridad, sintaxis `=host` y `lh*.x.com`, migración automática (`PresetSync`), notas en "Bloqueados Recientes", FAQ.
+- Tests nuevos/ajustados en Core y Service; lógica verificada con simulación en Python (todo en verde). Sin compilar: build, tests, empaquetado y VM a cargo de Antigravity. Versión 0.4.0.
+
 ---
 
 ## 8. Próximo paso
 
-**Para Antigravity (tiene terminal Windows):** compilar, testear y empaquetar **v0.3.0** siguiendo `HANDOFF_ANTIGRAVITY.md` (sección "Sesión 8"):
-1. `dotnet build` y `dotnet test` de toda la solución. Deben pasar los 73 previos **más** los nuevos (TrialConfig, TrialManager, TrialIpc, hash del updater). Si algo no compila, es de esta sesión: reportar archivo/línea.
-2. `publish` self-contained + empaquetar con Inno Setup → `bin\installer\LockSuiteSetup-0.3.0.exe`, y generar `SHA256SUMS.txt` (lo hace `scripts\publish-release.ps1`).
-3. Validar en **VM limpia**:
-   - La vista Ayuda/FAQ y el menú contextual "Instalar en mi usuario" (probar con un instalador per-user, p. ej. un navegador portable, que NO salte UAC y se instale en AppData).
-   - Modo de prueba: instalar con una prueba corta (o `--set-trial 10 autoremove`), confirmar cuenta regresiva, y que al vencer (a) con `autoremove` se desinstala solo y limpia WFP/NRPT/config; (b) con `prompt` aparece la ventana y "Quitar" desinstala, "Conservar" deja permanente.
-   - Auto-update: publicar un release de prueba mayor con `SHA256SUMS.txt` y verificar que el equipo se actualiza solo (incluye la verificación de hash y el reemplazo de binarios con el servicio detenido).
-4. Si todo pasa en verde, `publish-release.ps1 -Version 0.3.0` (o commit + tag) y actualizar este `ESTADO.md` (resultados reales + nueva línea de log).
+**Para Antigravity (tiene terminal Windows):** seguir `HANDOFF_ANTIGRAVITY.md`, sección **"SESIÓN 9"**:
+1. `dotnet build` y `dotnet test` (usuario estándar). Deben pasar los 96 previos (con el test de `ConfigManager` ajustado: `google.com` ya **no** se permite) **más** los nuevos (`PresetsTests`, `PresetSyncTests`, casos nuevos de `DomainMatcherTests` y `ConfigManagerTests`). Si algo no compila, es de la sesión 9: reportar archivo/línea.
+2. Empaquetar **v0.4.0** (`.\scripts\publish-release.ps1 -Version "0.4.0" ...` o a mano) — incluye todo lo de v0.3.0; si la 0.3.0 no se publicó, publicar directo la 0.4.0.
+3. Validar en VM con una **cuenta de Google de prueba**: (a) migración desde v0.3.0 (`www.google.com` deja de abrir); (b) las 6 tarjetas y el botón "Abrir"; (c) cada servicio con el modo aprendizaje activo; (d) los negativos kosher (buscador, Gemini, YouTube, Play…). Anotar: si los videos de Drive/Fotos reproducen, si "Insertar imagen → Buscar en la web" de Documentos muestra resultados, y cualquier host sin nota que haya hecho falta.
+4. También siguen pendientes las validaciones de la sesión 8 (§3 de esa sección: "Instalar en mi usuario", modo de prueba, auto-update con SHA256SUMS).
+5. Si todo pasa: commit (`feat(v0.4.0): ...`), publicar, y actualizar este `ESTADO.md` con los resultados reales.
 
-**Nota de limpieza:** quedó un archivo vacío `.ls_write_test` en la raíz (lo dejó la sesión de Claude probando escritura; el entorno no permitía borrarlo). Ya está en `.gitignore`; Antigravity puede borrarlo con `del .ls_write_test`.
+**Para la próxima sesión de Claude (después de la validación):**
+1. Sumar a `Presets.cs` los hosts que Antigravity haya encontrado faltantes (y al "Bloqueo fijo" el de la búsqueda de imágenes de Documentos, si aparece). La actualización los propaga sola (`PresetSync`).
+2. Sacar `github.com`/`githubusercontent.com` de la lista blanca general: que el auto-update resuelva GitHub desde el propio servicio (ya tiene permiso WFP por AppId), así el usuario no puede navegar GitHub.
+3. Evaluar la **fase 2 (SNI)** de `docs/ANALISIS_VIABILIDAD.md` §2.4: con Gmail permitido, las IPs compartidas de Google son el hueco técnico que queda para llegar al buscador.

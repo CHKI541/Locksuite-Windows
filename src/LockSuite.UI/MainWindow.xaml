@@ -254,24 +254,148 @@
                 </ScrollViewer>
 
                 <!-- 2. VISTA: LISTA BLANCA -->
-                <Grid x:Name="ViewListaBlanca" Visibility="Collapsed">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                <ScrollViewer x:Name="ViewListaBlanca" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Encabezado: servicios con un clic -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                <TextBlock Text="Servicios con un clic" FontSize="18" FontWeight="Bold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="#64748B" TextWrapping="Wrap"
+                                           Text="Cada botón habilita el servicio completo (inicio de sesión, imágenes, fuentes y adjuntos). El buscador de Google y Gemini siguen bloqueados igual."/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="+ Agregar Dominio" Height="32" Padding="14,0" VerticalAlignment="Top"
+                                    Background="#10B981" Foreground="White" FontWeight="SemiBold"
+                                    BorderThickness="0" Cursor="Hand" Click="BtnAddDomain_Click"/>
+                        </Grid>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,14">
-                        <Button Content="+ Agregar Dominio" Height="32" Padding="14,0"
-                                Background="#10B981" Foreground="White" FontWeight="SemiBold"
-                                BorderThickness="0" Cursor="Hand" Click="BtnAddDomain_Click"/>
-                    </StackPanel>
+                        <!-- Tarjetas: Permitir Gmail / Google Chat / Google Drive / Google Fotos / prog.co.il / mitmachim.top -->
+                        <ItemsControl ItemsSource="{Binding ServicePacks}" Margin="0,0,-10,8">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border CornerRadius="10" Padding="14" Margin="0,0,10,10" BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="White"/>
+                                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                        <Setter Property="Background" Value="#F0FDF4"/>
+                                                        <Setter Property="BorderBrush" Value="#86EFAC"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                            <!-- Icono, nombre y estado -->
+                                            <Grid Grid.Row="0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="20" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                <Border Grid.Column="2" CornerRadius="10" Padding="8,2" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="#F1F5F9"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                                    <Setter Property="Background" Value="#DCFCE7"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock Text="{Binding StateText}" FontSize="11" FontWeight="SemiBold">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="#64748B"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#166534"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </Border>
+                                            </Grid>
+
+                                            <TextBlock Grid.Row="1" Text="{Binding Description}" FontSize="12" Foreground="#334155"
+                                                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                                            <TextBlock Grid.Row="2" Text="{Binding Notice}" FontSize="11" Foreground="#92400E"
+                                                       TextWrapping="Wrap" Margin="0,6,0,0"
+                                                       Visibility="{Binding HasNotice, Converter={StaticResource BoolToVis}}"/>
+
+                                            <!-- Acciones: Permitir/Bloquear y Abrir -->
+                                            <WrapPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+                                                <Button Content="{Binding ToggleText}" Height="30" Padding="12,0" Margin="0,0,8,0"
+                                                        FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
+                                                        Click="BtnServiceToggle_Click">
+                                                    <Button.Style>
+                                                        <Style TargetType="Button">
+                                                            <Setter Property="Background" Value="#10B981"/>
+                                                            <Setter Property="Foreground" Value="White"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Enabled}" Value="True">
+                                                                    <Setter Property="Background" Value="#E2E8F0"/>
+                                                                    <Setter Property="Foreground" Value="#334155"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Button.Style>
+                                                </Button>
+                                                <Button Content="Abrir ↗" Height="30" Padding="10,0"
+                                                        Background="White" Foreground="#1D4ED8" BorderBrush="#BFDBFE" BorderThickness="1"
+                                                        Cursor="Hand" ToolTip="Abre el servicio en el navegador (entra directo al inicio de sesión si hace falta)"
+                                                        Tag="{Binding OpenUrl}" Click="BtnServiceOpen_Click"
+                                                        Visibility="{Binding CanOpen, Converter={StaticResource BoolToVis}}"/>
+                                            </WrapPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Detalle: todos los paquetes y sus dominios -->
+                        <TextBlock Text="Paquetes y dominios" FontSize="16" FontWeight="Bold" Foreground="#0F172A" Margin="0,8,0,4"/>
+                        <TextBlock FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"
+                                   Text="«ejemplo.com» habilita el sitio y sus subdominios; «=ejemplo.com» solo ese sitio exacto; «lh*.ejemplo.com» cualquier nombre que empiece así. Los paquetes de bloqueo (🚫) tienen prioridad sobre todo lo permitido."/>
+
                         <ItemsControl ItemsSource="{Binding Packs}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="White" CornerRadius="8" Padding="16" Margin="0,0,0,12"
-                                            BorderBrush="#E2E8F0" BorderThickness="1">
+                                    <Border CornerRadius="8" Padding="16" Margin="0,0,0,12" BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="White"/>
+                                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Blocks}" Value="True">
+                                                        <Setter Property="Background" Value="#FEF2F2"/>
+                                                        <Setter Property="BorderBrush" Value="#FECACA"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -286,12 +410,18 @@
                                                 </Grid.ColumnDefinitions>
 
                                                 <StackPanel Grid.Column="0">
-                                                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Icon}" FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" VerticalAlignment="Center"/>
+                                                    </StackPanel>
                                                     <TextBlock Text="{Binding DomainSummary}" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                                                    <TextBlock Text="Bloqueo con prioridad: estos sitios quedan bloqueados aunque otro paquete los permita."
+                                                               FontSize="11" Foreground="#991B1B" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                               Visibility="{Binding Blocks, Converter={StaticResource BoolToVis}}"/>
                                                 </StackPanel>
 
-                                                <CheckBox Grid.Column="1" IsChecked="{Binding Enabled}" 
-                                                          VerticalAlignment="Center" Content="Habilitado"
+                                                <CheckBox Grid.Column="1" IsChecked="{Binding Enabled}"
+                                                          VerticalAlignment="Center" Content="{Binding EnabledLabel}"
                                                           Cursor="Hand" Click="ChkPackToggle_Click"/>
                                             </Grid>
 
@@ -306,7 +436,7 @@
                                                                     <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
                                                                 <TextBlock Grid.Column="0" Text="{Binding}" FontFamily="Consolas" FontSize="13" Foreground="#1E293B"/>
-                                                                <Button Grid.Column="1" Content="✕" Width="22" Height="22" 
+                                                                <Button Grid.Column="1" Content="✕" Width="22" Height="22"
                                                                         Background="#FEE2E2" Foreground="#EF4444" BorderThickness="0"
                                                                         ToolTip="Eliminar dominio" Cursor="Hand"
                                                                         Click="BtnRemoveDomain_Click" Tag="{Binding}"/>
@@ -320,8 +450,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </ScrollViewer>
-                </Grid>
+                    </StackPanel>
+                </ScrollViewer>
 
                 <!-- 3. VISTA: BLOQUEADOS RECIENTES (MODO APRENDIZAJE) -->
                 <Grid x:Name="ViewRecientes" Visibility="Collapsed">
@@ -348,16 +478,31 @@
                         <ListView ItemsSource="{Binding RecentBlocked}" BorderThickness="0">
                             <ListView.View>
                                 <GridView>
-                                    <GridViewColumn Header="Dominio Intentado" Width="260">
+                                    <GridViewColumn Header="Dominio Intentado" Width="380">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding Domain}" FontWeight="Medium" FontFamily="Consolas" FontSize="13"/>
+                                                <StackPanel MaxWidth="360">
+                                                    <TextBlock Text="{Binding Domain}" FontWeight="Medium" FontFamily="Consolas" FontSize="13"/>
+                                                    <!-- Nota para el tutor: por qué está bloqueado y si conviene habilitarlo -->
+                                                    <TextBlock Text="{Binding Domain, Converter={StaticResource BlockedDomainNote}}"
+                                                               FontSize="11" Foreground="#92400E" TextWrapping="Wrap" Margin="0,2,0,0">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Style.Triggers>
+                                                                    <Trigger Property="Text" Value="">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    </Trigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </StackPanel>
                                             </DataTemplate>
                                         </GridViewColumn.CellTemplate>
                                     </GridViewColumn>
-                                    <GridViewColumn Header="Hora" Width="140" DisplayMemberBinding="{Binding Timestamp, StringFormat='HH:mm:ss dd/MM'}"/>
-                                    <GridViewColumn Header="Intentos" Width="80" DisplayMemberBinding="{Binding Count}"/>
-                                    <GridViewColumn Header="Acción" Width="140">
+                                    <GridViewColumn Header="Hora" Width="120" DisplayMemberBinding="{Binding Timestamp, StringFormat='HH:mm:ss dd/MM'}"/>
+                                    <GridViewColumn Header="Intentos" Width="70" DisplayMemberBinding="{Binding Count}"/>
+                                    <GridViewColumn Header="Acción" Width="120">
                                         <GridViewColumn.CellTemplate>
                                             <DataTemplate>
                                                 <Button Content="✓ Permitir" Height="24" Padding="10,0"
@@ -448,6 +593,32 @@
                                 <TextBlock Text="Necesito entrar a un sitio que está bloqueado" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
                                 <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
                                            Text="Pedile al tutor que lo agregue a la lista. El tutor lo hace desde «Lista Blanca», o desde «Bloqueados Recientes» con el botón Permitir, ingresando su contraseña."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="¿Cómo entro a Gmail, Drive, Fotos o Chat?" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Si el tutor los habilitó, usá los botones «Abrir» de «Lista Blanca» o estas direcciones: mail.google.com, drive.google.com/drive/my-drive, photos.google.com/login y chat.google.com/u/0/."/>
+                                <TextBlock Margin="0,8,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Las direcciones cortas (gmail.com, drive.google.com, photos.google.com) pasan por páginas publicitarias de Google que quedan bloqueadas mientras no hayas iniciado sesión. Una vez que iniciás sesión, funcionan normalmente."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="¿Por qué no funciona el buscador de Google ni Gemini?" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Están bloqueados a propósito, también cuando se permiten Gmail, Drive, Chat o Fotos. Para buscar dentro de Gmail o de Drive usá el buscador propio de cada uno. Las funciones de Gemini dentro de Gmail y Documentos también quedan bloqueadas."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="White" CornerRadius="8" Padding="18" Margin="0,0,0,12" BorderBrush="#E2E8F0" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Una imagen o un video no se ve" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Margin="0,6,0,0" FontSize="13" Foreground="#334155" TextWrapping="Wrap"
+                                           Text="Algunas cosas se bloquean a propósito: imágenes insertadas desde otros sitios, videos de YouTube, GIFs animados y publicidad. Si falta algo necesario, el tutor lo ve en «Bloqueados Recientes», con una nota que explica si conviene habilitarlo."/>
                             </StackPanel>
                         </Border>
 
