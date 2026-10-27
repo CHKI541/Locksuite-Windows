@@ -62,7 +62,7 @@ public struct FWP_VALUE0
     [FieldOffset(8)]
     public uint uint32;
     [FieldOffset(8)]
-    public ulong uint64;
+    public IntPtr uint64;
     [FieldOffset(8)]
     public IntPtr byteBlob;
     [FieldOffset(8)]

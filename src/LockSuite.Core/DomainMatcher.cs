@@ -28,6 +28,40 @@ namespace LockSuite.Core;
 /// </summary>
 public static class DomainMatcher
 {
+    private static readonly HashSet<string> KnownMultiPartPublicSuffixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Israel
+        "co.il", "org.il", "net.il", "ac.il", "gov.il", "muni.il", "idf.il", "k12.il",
+        // Argentina
+        "com.ar", "gob.ar", "gov.ar", "net.ar", "org.ar", "edu.ar", "int.ar", "mil.ar",
+        // UK
+        "co.uk", "org.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk", "ac.uk", "gov.uk", "mod.uk", "nhs.uk",
+        // Brazil
+        "com.br", "net.br", "org.br", "gov.br", "edu.br", "art.br", "bio.br", "blog.br",
+        // Mexico
+        "com.mx", "org.mx", "edu.mx", "gob.mx", "net.mx",
+        // Spain
+        "com.es", "org.es", "gob.es", "nom.es", "edu.es",
+        // Colombia, Chile, Peru, Uruguay
+        "com.co", "org.co", "gov.co", "edu.co",
+        "com.cl", "gob.cl",
+        "com.pe", "org.pe", "gob.pe", "edu.pe",
+        "com.uy", "org.uy", "gub.uy", "edu.uy",
+        // Australia / NZ / SA
+        "com.au", "net.au", "org.au", "edu.au", "gov.au", "asn.au", "id.au",
+        "co.nz", "net.nz", "org.nz", "govt.nz", "ac.nz", "school.nz",
+        "co.za", "org.za", "gov.za", "net.za", "ac.za", "edu.za",
+        // Asia / Other
+        "co.jp", "ne.jp", "or.jp", "go.jp", "ac.jp", "ed.jp",
+        "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn",
+        "com.tr", "org.tr", "gov.tr", "edu.tr",
+        "com.sg", "org.sg", "gov.sg", "edu.sg",
+        "com.hk", "org.hk", "gov.hk", "edu.hk",
+        "com.tw", "org.tw", "gov.tw", "edu.tw",
+        "co.in", "net.in", "org.in", "gov.in", "ac.in", "edu.in", "res.in",
+        "com.ua", "org.ua", "net.ua", "edu.ua", "gov.ua"
+    };
+
     /// <summary>Normaliza un host: minusculas, sin espacios, sin punto final.</summary>
     public static string Normalize(string? host)
     {
@@ -161,6 +195,10 @@ public static class DomainMatcher
         else p = raw;
 
         if (p.Length == 0) return false;
+
+        // Rechaza sufijos públicos o TLDs compuestos sueltos (ej. "co.il", "com.ar", "co.uk")
+        // que abririan todos los subdominios de un pais.
+        if (KnownMultiPartPublicSuffixes.Contains(p)) return false;
 
         // Debe tener al menos dos labels no vacios (evita TLD/single-label como "com").
         var labels = p.Split('.');

@@ -290,6 +290,17 @@ public sealed class NamedPipeServer : IDisposable
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
                     if (string.IsNullOrWhiteSpace(request.Payload)) return IpcResponse.Fail("Configuración vacía");
                     var newConfig = WhitelistConfig.FromJson(request.Payload);
+                    foreach (var pack in newConfig.Packs)
+                    {
+                        if (pack.BuiltIn) continue;
+                        foreach (var d in pack.Domains)
+                        {
+                            if (!DomainMatcher.IsValidPattern(d))
+                            {
+                                return IpcResponse.Fail($"Patrón inválido o peligroso en paquete '{pack.Name}': '{d}'");
+                            }
+                        }
+                    }
                     _configManager.UpdateConfig(newConfig);
                     return IpcResponse.Ok();
 

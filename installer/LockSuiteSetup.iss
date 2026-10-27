@@ -183,6 +183,9 @@ begin
   begin
     svc := ExpandConstant('{app}\service\{#MyServiceExeName}');
 
+    { 0) Asegurar permisos NTFS de ProgramData\LockSuite: quitar herencia y dar acceso solo a SYSTEM y Administradores }
+    Exec('icacls.exe', '"' + ExpandConstant('{commonappdata}\LockSuite') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T', '', SW_HIDE, ewWaitUntilTerminated, rc);
+
     { 1) Fijar la contrasena maestra del tutor. Solo si se ingreso (en modo silencioso,
          p. ej. una auto-actualizacion, no hay pagina y Values[0] queda vacio: no se toca). }
     if PwPage.Values[0] <> '' then

@@ -126,6 +126,14 @@ public sealed class ConfigManager
         lock (_lock)
         {
             var cfg = newConfig ?? new WhitelistConfig();
+            // Sanitiza patrones en paquetes personalizados
+            foreach (var pack in cfg.Packs)
+            {
+                if (!pack.BuiltIn)
+                {
+                    pack.Domains.RemoveAll(d => !DomainMatcher.IsValidPattern(d));
+                }
+            }
             // Los paquetes de fabrica siempre quedan integros (incluido el bloqueo fijo).
             PresetSync.Apply(cfg);
             _currentConfig = cfg;

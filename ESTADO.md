@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.5.0 — Construida, testeada al 100% (426/426 tests) y empaquetada.** Cierra las fallas del catálogo `docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md` (verificadas una por una) y **todos los problemas de certificado**: OCSP/CRL e intermedios de las CAs más usadas (incl. las 3 de Cloudflare y `lencr.org`/`amazontrust.com`), raíces de Windows (`ctldl.windowsupdate.com`) y listas de certificados de los navegadores (Chrome Root Store/CRLSet, Edge, Firefox CRLite). Además: desactivación de DoH por directiva, paquetes de Windows Update/Defender y de actualización de navegadores, modo portal cautivo (Wi-Fi de hotel), permiso de red local, vaciado de caché DNS al permitir un dominio, y permisos base NTP y DHCPv6. Auto-actualización en espera de confirmación para su publicación en GitHub Releases.
-Versión anterior: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.** Deadlock de Named Pipe en arranque de GUI, cascading timeouts en UI, Inno Setup x64 (`runasoriginaluser`), supresión de ICMP 10054 en DNS y tests de integración de IPC.
-Última actualización: 2026-10-22, sesión 12 (Antigravity: build y test 426/426 tests verde, empaquetado v0.5.0 local y push a GitHub en rama main sin tag de release a pedido del usuario para no forzar auto-update prematuro).
+Versión actual: **0.5.0 — Construida, testeada al 100% (436/436 tests), empaquetada y publicada en GitHub Releases.** Corrige el bug crítico de marshalling de puntero en WFP (`FWP_VALUE0.uint64`) que provocaba la caída al "Modo simulación", cierra vectores de evasión (`DOTNET_STARTUP_HOOKS`, herencia débil en ACLs de ProgramData, túneles UDP en puertos NTP/DHCP), agrega verificación de TransactionId y conexión en DNS upstream, guarda contra sufijos públicos peligrosos (`co.il`, `com.ar`, etc.), y activa la actualización automática de clientes.
+Versión anterior: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.**
+Última actualización: 2026-10-27, sesión 13 (Auditoría de seguridad y evasión, corrección de marshalling en WFP, hardening de ACLs/IPC/DNS, 436 tests en verde y publicación de Release v0.5.0 para auto-actualización).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -198,17 +198,23 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - DoH off por directiva; paquetes Windows Update/Defender, navegadores, recursos web y captchas; portal cautivo; red local; flush DNS; permisos base NTP y DHCPv6; cartel de DNS caído.
 - Todo **en código** + tests nuevos de Core/Service. Versión subida a 0.5.0.
 
-### Sesión 12 — 2026-10-22 (Build 426 tests verde, empaquetado v0.5.0 y push GitHub — Antigravity)
-- **Compilación y verificación completa:** `dotnet build` sin advertencias ni errores (0/0).
-- **Suite de pruebas:** **426/426 tests pasando al 100% (verde)** (364 Core + 62 Service). Se validaron los nuevos tests de `PresetsExtraTests` y `ConfigManagerTests`.
-- **Publicación y Empaquetado:** Publicación autocontenida win-x64 de Service y UI. Compilación con Inno Setup generando `LockSuiteSetup-0.5.0.exe` (70.33 MB) con su respectivo `SHA256SUMS.txt` en `c:\Locksuite windows\bin\installer\`.
-- **Auto-Update protegido:** Siguiendo la instrucción explícita del usuario, **no** se creó release público en GitHub ni se enviaron tags para evitar que las instalaciones de producción existentes descarguen o actualicen automáticamente a v0.5.0 hasta recibir confirmación.
-- **Sincronización:** Cambios commiteados y subidos a la rama `main` de GitHub.
+### Sesión 13 — 2026-10-27 (Auditoría de seguridad y evasión, bugfix de WFP, hardening y publicación Release v0.5.0)
+- **Diagnóstico y solución raíz de la caída a "Modo Simulación":**
+  - Se identificó la discrepancia en `FWP_VALUE0.uint64` (`NativeMethods.cs`): la cabecera nativa de WFP (`fwpstypes.h`) define `UINT64* uint64` (puntero a `uint64`), a diferencia de `FWP_CONDITION_VALUE0.uint64` que almacena el valor directo. Al pasar pesos enteros directos (ej. 50, 100), `FwpmFilterAdd0` desreferenciaba direcciones inválidas (`0x32`, `0x64`), lanzando excepción y haciendo que `WfpManager.Initialize()` cayera en modo simulación (`_isSimulationMode = true`).
+  - Solución: se implementó helper `CreateWeight(ulong weight, out IntPtr allocPtr)` con `Marshal.AllocHGlobal`, asignando punteros válidos y liberándolos tras la llamada en los 9 filtros base y dinámicos.
+- **Hardening de seguridad y mitigación de evasión:**
+  - **Inyección por `DOTNET_STARTUP_HOOKS`:** Se configuró `<RuntimeHostConfigurationOption Include="System.StartupHookProvider.IsSupported" Value="false" />` en `LockSuite.Service.csproj`, impidiendo la inyección de DLLs no autorizadas para aprovechar el `ALE_APP_ID` del servicio.
+  - **Permisos débiles en `%ProgramData%\LockSuite`:** Se creó `AclHelper.cs` (llamado en `Worker.StartAsync`) y se actualizó `LockSuiteSetup.iss` para deshabilitar la herencia de NTFS (`/inheritance:r`) y conceder Control Total exclusivo a `SYSTEM` (`*S-1-5-18`) y `Administrators` (`*S-1-5-32-544`), protegiendo `auth.dat`, `whitelist.json` y el directorio de updates contra manipulación o lectura de usuarios estándar.
+  - **Evasión por puertos UDP permitidos:** En `TryAddPortPermit` y `AddDhcpPermitFilter`, se agregaron condiciones restrictivas de puerto de origen (`FWPM_CONDITION_IP_LOCAL_PORT == PORT_NTP` [123], `PORT_DHCP_CLIENT` [68], `PORT_DHCPV6_CLIENT` [546]), cerrando túneles VPN/UDP hacia esos puertos desde puertos efímeros de usuario.
+  - **Protección DNS Upstream:** En `DnsResolver.cs`, el socket se conecta directamente al upstream (`ConnectAsync`) y se valida que el `TransactionId` de la respuesta coincida exactamente con el de la consulta, mitigando spoofing e inyección de IPs en WFP.
+  - **Validación de sufijos públicos:** En `DomainMatcher.IsValidPattern`, se agregó una lista exhaustiva de sufijos públicos y TLDs multi-parte (`co.il`, `com.ar`, `co.uk`, etc.) para impedir que un patrón bare abra todos los subdominios de un país.
+  - **Saneamiento en `SaveConfig`:** En IPC `NamedPipeServer.cs` y `ConfigManager.UpdateConfig`, se verifica y filtra cualquier patrón inválido o peligroso en paquetes personalizados.
+- **Resultados:** **436/436 tests pasando al 100% (verde)** (373 Core + 63 Service).
+- **Publicación:** Compilación de binarios autocontenidos, generación de instalador Inno Setup (`LockSuiteSetup-0.5.0.exe`), cálculo de hash SHA-256 en `SHA256SUMS.txt`, y publicación de GitHub Release `v0.5.0` para despliegue de actualización automática a usuarios.
 
 ---
 
 ## 8. Próximo paso
 
-1. Validar `LockSuiteSetup-0.5.0.exe` en VM de prueba (certificados Let's Encrypt/Cloudflare, DoH inactivo en navegadores, modo portal cautivo y red local).
-2. Cuando el usuario lo indique, publicar el Release v0.5.0 en GitHub (`gh release create` o script) para que las instalaciones existentes reciban la actualización automática.
-3. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.
+1. Monitorear el despliegue automático de la actualización v0.5.0 en clientes con v0.4.x.
+2. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.

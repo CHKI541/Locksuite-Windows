@@ -258,24 +258,33 @@ public sealed class DnsResolver : IDisposable
 
     private async Task<byte[]?> QueryUpstreamAsync(byte[] queryData, CancellationToken token)
     {
+        if (queryData.Length < 2) return null;
+        ushort queryTxId = (ushort)((queryData[0] << 8) | queryData[1]);
+
         foreach (var upstream in _upstreamEndpoints)
         {
             try
             {
                 using var upstreamSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                await upstreamSocket.ConnectAsync(upstream, token);
 
-                await upstreamSocket.SendToAsync(queryData, SocketFlags.None, upstream);
+                await upstreamSocket.SendAsync(queryData, SocketFlags.None, token);
 
                 byte[] respBuffer = new byte[4096];
                 using var ctsTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
                 ctsTimeout.CancelAfter(UpstreamTimeoutMs);
 
-                EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-                var result = await upstreamSocket.ReceiveFromAsync(respBuffer, SocketFlags.None, remoteEp, ctsTimeout.Token);
-
-                byte[] response = new byte[result.ReceivedBytes];
-                Buffer.BlockCopy(respBuffer, 0, response, 0, result.ReceivedBytes);
-                return response;
+                int received = await upstreamSocket.ReceiveAsync(respBuffer, SocketFlags.None, ctsTimeout.Token);
+                if (received >= 2)
+                {
+                    ushort respTxId = (ushort)((respBuffer[0] << 8) | respBuffer[1]);
+                    if (respTxId == queryTxId)
+                    {
+                        byte[] response = new byte[received];
+                        Buffer.BlockCopy(respBuffer, 0, response, 0, received);
+                        return response;
+                    }
+                }
             }
             catch
             {

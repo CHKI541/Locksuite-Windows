@@ -391,12 +391,14 @@ public sealed class WfpManager : IWfpManager
 
         // NTP (UDP 123): sincronizacion de hora robusta, independiente de que time.windows.com
         // resuelva a tiempo. Sin hora correcta, TODOS los HTTPS fallan por certificado.
+        // Se restringe tanto el puerto remoto como el local a 123 para evitar tunelizacion UDP.
         TryAddPortPermit(KeyNtpV4, WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
-            WfpConstants.PORT_NTP, "Permit NTP (hora)");
+            WfpConstants.PORT_NTP, "Permit NTP (hora)", WfpConstants.PORT_NTP);
 
         // DHCPv6 (UDP 547): sin esto, en redes solo-IPv6 el equipo no obtiene direccion ni DNS.
+        // Se restringe el puerto local al cliente DHCPv6 (546).
         TryAddPortPermit(KeyDhcpV6, WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V6,
-            WfpConstants.PORT_DHCPV6_SERVER, "Permit DHCPv6");
+            WfpConstants.PORT_DHCPV6_SERVER, "Permit DHCPv6", WfpConstants.PORT_DHCPV6_CLIENT);
 
         ApplyLocalNetworkPermits(_allowLocalNetwork);
     }
@@ -433,15 +435,29 @@ public sealed class WfpManager : IWfpManager
         _logger.LogInformation("Permiso de red local (direcciones privadas) ACTIVADO.");
     }
 
+    private static FWP_VALUE0 CreateWeight(ulong weight, out IntPtr allocPtr)
+    {
+        allocPtr = Marshal.AllocHGlobal(sizeof(ulong));
+        Marshal.WriteInt64(allocPtr, unchecked((long)weight));
+        return new FWP_VALUE0
+        {
+            type = WfpConstants.FWP_UINT64,
+            uint64 = allocPtr
+        };
+    }
+
     // Permiso UDP saliente a un puerto remoto dado (como el de DHCP, pero generico). Best-effort.
-    private void TryAddPortPermit(Guid filterKey, Guid layerGuid, ushort remotePort, string label)
+    // Si se especifica localPort, restringe tambien el puerto de origen para evitar que apps
+    // de usuario no privilegiadas tunelicen por puertos permitidos (ej. NTP o DHCPv6).
+    private void TryAddPortPermit(Guid filterKey, Guid layerGuid, ushort remotePort, string label, ushort? localPort = null)
     {
         try
         {
             var k = filterKey;
             NativeMethods.FwpmFilterDeleteByKey0(_engineHandle, in k);
 
-            var conditions = new FWPM_FILTER_CONDITION0[2];
+            int condCount = localPort.HasValue ? 3 : 2;
+            var conditions = new FWPM_FILTER_CONDITION0[condCount];
             conditions[0] = new FWPM_FILTER_CONDITION0
             {
                 fieldKey = WfpConstants.FWPM_CONDITION_IP_PROTOCOL,
@@ -454,21 +470,32 @@ public sealed class WfpManager : IWfpManager
                 matchType = WfpConstants.FWP_MATCH_EQUAL,
                 conditionValue = new FWP_CONDITION_VALUE0 { type = WfpConstants.FWP_UINT16, uint16 = remotePort }
             };
+            if (localPort.HasValue)
+            {
+                conditions[2] = new FWPM_FILTER_CONDITION0
+                {
+                    fieldKey = WfpConstants.FWPM_CONDITION_IP_LOCAL_PORT,
+                    matchType = WfpConstants.FWP_MATCH_EQUAL,
+                    conditionValue = new FWP_CONDITION_VALUE0 { type = WfpConstants.FWP_UINT16, uint16 = localPort.Value }
+                };
+            }
 
             int itemSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
             IntPtr condArrayPtr = Marshal.AllocHGlobal(itemSize * conditions.Length);
+            IntPtr weightPtr = IntPtr.Zero;
             try
             {
                 for (int i = 0; i < conditions.Length; i++)
                     Marshal.StructureToPtr(conditions[i], IntPtr.Add(condArrayPtr, i * itemSize), false);
 
+                var weightVal = CreateWeight(50, out weightPtr);
                 var filter = new FWPM_FILTER0
                 {
                     filterKey = filterKey,
                     displayData = new FWPM_DISPLAY_DATA0 { name = "LockSuite " + label, description = label },
                     layerKey = layerGuid,
                     subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                    weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                    weight = weightVal,
                     numFilterConditions = (uint)conditions.Length,
                     filterCondition = condArrayPtr,
                     action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -480,6 +507,7 @@ public sealed class WfpManager : IWfpManager
             }
             finally
             {
+                if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
                 Marshal.FreeHGlobal(condArrayPtr);
             }
         }
@@ -494,6 +522,7 @@ public sealed class WfpManager : IWfpManager
     {
         IntPtr addrMaskPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWP_V4_ADDR_AND_MASK>());
         IntPtr condPtr = IntPtr.Zero;
+        IntPtr weightPtr = IntPtr.Zero;
         try
         {
             Marshal.StructureToPtr(new FWP_V4_ADDR_AND_MASK { addr = addr, mask = mask }, addrMaskPtr, false);
@@ -508,13 +537,14 @@ public sealed class WfpManager : IWfpManager
             condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
             Marshal.StructureToPtr(condition, condPtr, false);
 
+            var weightVal = CreateWeight(60, out weightPtr);
             var filter = new FWPM_FILTER0
             {
                 filterKey = filterKey,
                 displayData = new FWPM_DISPLAY_DATA0 { name = "LockSuite " + label, description = "Permite la red local (direcciones privadas)" },
                 layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                 subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 60 },
+                weight = weightVal,
                 numFilterConditions = 1,
                 filterCondition = condPtr,
                 action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -526,6 +556,7 @@ public sealed class WfpManager : IWfpManager
         }
         finally
         {
+            if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
             if (condPtr != IntPtr.Zero) Marshal.FreeHGlobal(condPtr);
             Marshal.FreeHGlobal(addrMaskPtr);
         }
@@ -567,9 +598,11 @@ public sealed class WfpManager : IWfpManager
         };
 
         IntPtr condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+        IntPtr weightPtr = IntPtr.Zero;
         try
         {
             Marshal.StructureToPtr(condition, condPtr, false);
+            var weightVal = CreateWeight(50, out weightPtr);
 
             var filter = new FWPM_FILTER0
             {
@@ -581,7 +614,7 @@ public sealed class WfpManager : IWfpManager
                 },
                 layerKey = layerGuid,
                 subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                weight = weightVal,
                 numFilterConditions = 1,
                 filterCondition = condPtr,
                 action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -591,13 +624,14 @@ public sealed class WfpManager : IWfpManager
         }
         finally
         {
+            if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
             Marshal.FreeHGlobal(condPtr);
         }
     }
 
     private void AddDhcpPermitFilter(Guid filterKey)
     {
-        var conditions = new FWPM_FILTER_CONDITION0[2];
+        var conditions = new FWPM_FILTER_CONDITION0[3];
         conditions[0] = new FWPM_FILTER_CONDITION0
         {
             fieldKey = WfpConstants.FWPM_CONDITION_IP_PROTOCOL,
@@ -618,9 +652,20 @@ public sealed class WfpManager : IWfpManager
                 uint16 = WfpConstants.PORT_DHCP_SERVER
             }
         };
+        conditions[2] = new FWPM_FILTER_CONDITION0
+        {
+            fieldKey = WfpConstants.FWPM_CONDITION_IP_LOCAL_PORT,
+            matchType = WfpConstants.FWP_MATCH_EQUAL,
+            conditionValue = new FWP_CONDITION_VALUE0
+            {
+                type = WfpConstants.FWP_UINT16,
+                uint16 = WfpConstants.PORT_DHCP_CLIENT
+            }
+        };
 
         int itemSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
         IntPtr condArrayPtr = Marshal.AllocHGlobal(itemSize * conditions.Length);
+        IntPtr weightPtr = IntPtr.Zero;
         try
         {
             for (int i = 0; i < conditions.Length; i++)
@@ -629,6 +674,7 @@ public sealed class WfpManager : IWfpManager
                 Marshal.StructureToPtr(conditions[i], itemPtr, false);
             }
 
+            var weightVal = CreateWeight(50, out weightPtr);
             var filter = new FWPM_FILTER0
             {
                 filterKey = filterKey,
@@ -639,7 +685,7 @@ public sealed class WfpManager : IWfpManager
                 },
                 layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                 subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                weight = weightVal,
                 numFilterConditions = (uint)conditions.Length,
                 filterCondition = condArrayPtr,
                 action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -649,6 +695,7 @@ public sealed class WfpManager : IWfpManager
         }
         finally
         {
+            if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
             Marshal.FreeHGlobal(condArrayPtr);
         }
     }
@@ -680,6 +727,7 @@ public sealed class WfpManager : IWfpManager
 
         int itemSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
         IntPtr condArrayPtr = Marshal.AllocHGlobal(itemSize * conditions.Length);
+        IntPtr weightPtr = IntPtr.Zero;
         try
         {
             for (int i = 0; i < conditions.Length; i++)
@@ -688,6 +736,7 @@ public sealed class WfpManager : IWfpManager
                 Marshal.StructureToPtr(conditions[i], itemPtr, false);
             }
 
+            var weightVal = CreateWeight(50, out weightPtr);
             var filter = new FWPM_FILTER0
             {
                 filterKey = filterKey,
@@ -698,7 +747,7 @@ public sealed class WfpManager : IWfpManager
                 },
                 layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                 subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                weight = weightVal,
                 numFilterConditions = (uint)conditions.Length,
                 filterCondition = condArrayPtr,
                 action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -708,6 +757,7 @@ public sealed class WfpManager : IWfpManager
         }
         finally
         {
+            if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
             Marshal.FreeHGlobal(condArrayPtr);
         }
     }
@@ -742,9 +792,11 @@ public sealed class WfpManager : IWfpManager
             };
 
             IntPtr condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+            IntPtr weightPtr = IntPtr.Zero;
             try
             {
                 Marshal.StructureToPtr(condition, condPtr, false);
+                var weightVal = CreateWeight(50, out weightPtr);
 
                 var filter = new FWPM_FILTER0
                 {
@@ -756,7 +808,7 @@ public sealed class WfpManager : IWfpManager
                     },
                     layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                     subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                    weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 50 },
+                    weight = weightVal,
                     numFilterConditions = 1,
                     filterCondition = condPtr,
                     action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -766,6 +818,7 @@ public sealed class WfpManager : IWfpManager
             }
             finally
             {
+                if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
                 Marshal.FreeHGlobal(condPtr);
             }
         }
@@ -777,23 +830,31 @@ public sealed class WfpManager : IWfpManager
 
     private void AddDefaultBlockFilter(Guid filterKey, Guid layerGuid, string name)
     {
-        var filter = new FWPM_FILTER0
+        var weightVal = CreateWeight(1, out IntPtr weightPtr);
+        try
         {
-            filterKey = filterKey,
-            displayData = new FWPM_DISPLAY_DATA0
+            var filter = new FWPM_FILTER0
             {
-                name = name,
-                description = "Bloqueo por defecto de salida (LockSuite default-deny)"
-            },
-            layerKey = layerGuid,
-            subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-            weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 1 }, // Peso 1 = menor prioridad en la subcapa
-            numFilterConditions = 0,
-            filterCondition = IntPtr.Zero,
-            action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_BLOCK }
-        };
+                filterKey = filterKey,
+                displayData = new FWPM_DISPLAY_DATA0
+                {
+                    name = name,
+                    description = "Bloqueo por defecto de salida (LockSuite default-deny)"
+                },
+                layerKey = layerGuid,
+                subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
+                weight = weightVal, // Peso 1 = menor prioridad en la subcapa
+                numFilterConditions = 0,
+                filterCondition = IntPtr.Zero,
+                action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_BLOCK }
+            };
 
-        AddFilterChecked(in filter, name);
+            AddFilterChecked(in filter, name);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(weightPtr);
+        }
     }
 
     /// <summary>Agrega un filtro y lanza si el resultado no es éxito ni "ya existe".</summary>
@@ -825,9 +886,11 @@ public sealed class WfpManager : IWfpManager
             };
 
             IntPtr condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+            IntPtr weightPtr = IntPtr.Zero;
             try
             {
                 Marshal.StructureToPtr(condition, condPtr, false);
+                var weightVal = CreateWeight(100, out weightPtr);
 
                 var filter = new FWPM_FILTER0
                 {
@@ -839,7 +902,7 @@ public sealed class WfpManager : IWfpManager
                     },
                     layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                     subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                    weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 100 },
+                    weight = weightVal,
                     numFilterConditions = 1,
                     filterCondition = condPtr,
                     action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -850,6 +913,7 @@ public sealed class WfpManager : IWfpManager
             }
             finally
             {
+                if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
                 Marshal.FreeHGlobal(condPtr);
             }
         }
@@ -873,9 +937,11 @@ public sealed class WfpManager : IWfpManager
                 };
 
                 IntPtr condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+                IntPtr weightPtr = IntPtr.Zero;
                 try
                 {
                     Marshal.StructureToPtr(condition, condPtr, false);
+                    var weightVal = CreateWeight(100, out weightPtr);
 
                     var filter = new FWPM_FILTER0
                     {
@@ -887,7 +953,7 @@ public sealed class WfpManager : IWfpManager
                         },
                         layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V6,
                         subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
-                        weight = new FWP_VALUE0 { type = WfpConstants.FWP_UINT64, uint64 = 100 },
+                        weight = weightVal,
                         numFilterConditions = 1,
                         filterCondition = condPtr,
                         action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
@@ -898,6 +964,7 @@ public sealed class WfpManager : IWfpManager
                 }
                 finally
                 {
+                    if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
                     Marshal.FreeHGlobal(condPtr);
                 }
             }

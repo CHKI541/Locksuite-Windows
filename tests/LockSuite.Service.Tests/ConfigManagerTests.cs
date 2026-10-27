@@ -253,4 +253,36 @@ public class ConfigManagerTests : IDisposable
         manager.AddDomain("evento-test.com");
         Assert.True(fired >= 1);
     }
+
+    [Fact]
+    public void UpdateConfig_SanitizesCustomPackInvalidPatterns()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        var customCfg = manager.CurrentConfig;
+        var customPack = new LockSuite.Core.DomainPack
+        {
+            Name = "Prueba Personalizada",
+            Enabled = true,
+            BuiltIn = false,
+            Domains = new System.Collections.Generic.List<string>
+            {
+                "valido.com",
+                "co.il",            // sufijo publico peligroso
+                "com.ar",           // sufijo publico peligroso
+                "*invalido.com",    // comodin malformado
+                "sub.valido.co.il"  // dominio valido bajo sufijo publico
+            }
+        };
+        customCfg.Packs.Add(customPack);
+
+        manager.UpdateConfig(customCfg);
+
+        var pack = manager.CurrentConfig.Packs.Find(p => p.Name == "Prueba Personalizada");
+        Assert.NotNull(pack);
+        Assert.Contains("valido.com", pack.Domains);
+        Assert.Contains("sub.valido.co.il", pack.Domains);
+        Assert.DoesNotContain("co.il", pack.Domains);
+        Assert.DoesNotContain("com.ar", pack.Domains);
+        Assert.DoesNotContain("*invalido.com", pack.Domains);
+    }
 }

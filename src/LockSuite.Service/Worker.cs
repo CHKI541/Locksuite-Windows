@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
+using LockSuite.Service.Security;
 using LockSuite.Service.Trial;
 using LockSuite.Service.Updates;
 using LockSuite.Service.Wfp;
@@ -51,6 +52,9 @@ public sealed class Worker : BackgroundService
         _logger.LogInformation("=================================================");
         _logger.LogInformation("  Iniciando LockSuite Windows Service            ");
         _logger.LogInformation("=================================================");
+
+        // 0. Endurecer permisos NTFS de %ProgramData%\LockSuite (remover herencia de Users)
+        AclHelper.SecureProgramDataDirectory();
 
         // 1. Inicializar WFP (default-deny). No lanza: ante error pasa a simulación.
         var cfg = _configManager.CurrentConfig;

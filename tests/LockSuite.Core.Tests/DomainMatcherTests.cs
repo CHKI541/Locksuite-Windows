@@ -78,6 +78,16 @@ public class DomainMatcherTests
     [InlineData("lh*.*.google.com", false)]                // comodin en dos etiquetas
     [InlineData("-lh*.google.com", false)]                 // etiqueta empieza con '-'
     [InlineData("lh*-.google.com", false)]                 // etiqueta termina con '-'
+    // Sufijos publicos / TLDs compuestos sueltos
+    [InlineData("co.il", false)]
+    [InlineData("com.ar", false)]
+    [InlineData("co.uk", false)]
+    [InlineData("*.co.il", false)]
+    [InlineData("=co.il", false)]
+    [InlineData("google.co.il", true)]
+    [InlineData("sub.ejemplo.co.il", true)]
+    [InlineData("afip.gob.ar", true)]
+    [InlineData("gob.ar", false)]
     public void IsValidPattern_Cases(string pattern, bool expected)
         => Assert.Equal(expected, DomainMatcher.IsValidPattern(pattern));
 
